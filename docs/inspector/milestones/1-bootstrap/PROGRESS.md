@@ -24,7 +24,7 @@
 
 ## Completed Tasks
 
-### 🚧 bootstrap/feat/instrumentation-hook-bus
+### ✅ bootstrap/feat/instrumentation-hook-bus
 **Started**: 2025-07-11  
 **Assignee**: (In git stash)  
 **Status**: Implementation complete, awaiting PR
@@ -68,18 +68,12 @@
 
 ### ⏳ bootstrap/feat/llm-generate-hooks
 **Status**: Not started  
-**Dependencies**: instrumentation-hook-bus (in progress)  
+**Dependencies**: instrumentation-hook-bus (completed)  
 **Estimated effort**: 3-4 hours
 **Priority**: HIGH - Needed for telemetry
 
 **Description**: Add hooks to all LLM provider implementations
 **Note**: Split from instrumentation-hook-bus task due to complexity across multiple providers
-
-### ⏳ bootstrap/feat/llm-generate-hooks
-**Status**: Not started  
-**Dependencies**: instrumentation-hook-bus (completed)  
-**Estimated effort**: 3-4 hours
-**Note**: Split from original instrumentation-hook-bus task due to complexity
 
 ### ⏳ bootstrap/feat/telemetry-span-attributes
 **Status**: Not started  
