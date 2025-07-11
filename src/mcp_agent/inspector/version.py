@@ -1,3 +1,8 @@
 """Version constant for mcp-agent-inspector."""
 
-__version__: str = "0.0.1"
+from typing import Final
+
+__version__: Final[str] = "0.0.1"
+
+# Explicit public surface
+__all__: list[str] = ["__version__"]

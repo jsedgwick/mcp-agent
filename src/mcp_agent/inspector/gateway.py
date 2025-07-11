@@ -1,9 +1,17 @@
 """Gateway module for mcp-agent-inspector."""
 
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from fastapi import FastAPI
 
 
-def mount(app: Optional[Any] = None, *, expose: bool = False, auth: Optional[Any] = None) -> None:
+def mount(
+    app: "FastAPI | None" = None,
+    *,
+    expose: bool = False,
+    auth: Optional[Any] = None,
+) -> None:
     """
     Mount the inspector on an existing FastAPI application.
     
