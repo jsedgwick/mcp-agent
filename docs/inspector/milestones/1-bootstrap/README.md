@@ -81,6 +81,43 @@ src/mcp_agent/inspector/gateway.py     # mount() stub
 
 ---
 
+### bootstrap/feat/llm-generate-hooks
+**Priority**: Medium  
+**Description**: Add instrumentation hooks to AugmentedLLM implementations
+
+**Acceptance Criteria**:
+- `before_llm_generate` and `after_llm_generate` hooks added to all LLM providers
+- Hook emits before/after each generate() call with llm instance, prompt, and response
+- Works for all providers: Anthropic, OpenAI, Azure, Bedrock, Google, Ollama
+- Unit tests verify hooks fire for each provider
+- No impact on LLM functionality or error handling
+
+**Implementation Notes**:
+```python
+# Add to each provider's generate method:
+# Beginning of generate():
+await instrument._emit("before_llm_generate", llm=self, prompt=message)
+
+# End of generate() (before return):
+await instrument._emit("after_llm_generate", llm=self, prompt=message, response=responses)
+
+# Files to modify:
+src/mcp_agent/workflows/llm/augmented_llm_anthropic.py
+src/mcp_agent/workflows/llm/augmented_llm_openai.py
+src/mcp_agent/workflows/llm/augmented_llm_azure.py
+src/mcp_agent/workflows/llm/augmented_llm_bedrock.py
+src/mcp_agent/workflows/llm/augmented_llm_google.py
+src/mcp_agent/workflows/llm/augmented_llm_ollama.py
+```
+
+**Testing Strategy**:
+- Mock each LLM provider in tests
+- Verify hooks fire with correct arguments
+- Ensure exceptions in hooks don't break LLM calls
+- Test both sync and async generate methods
+
+---
+
 ### bootstrap/feat/telemetry-span-attributes
 **Priority**: Medium  
 **Description**: Add first span enrichment using hook system
@@ -151,9 +188,10 @@ instrument.register("before_agent_call", before_agent_call)
 ```mermaid
 graph TD
     H[instrumentation-hook-bus] --> A[package-skeleton]
+    H --> L[llm-generate-hooks]
     A --> B[gateway-health]
     B --> D[ui-react-scaffold]
-    H --> C[telemetry-span]
+    L --> C[telemetry-span]
     A --> C
     D --> E[github-actions]
     C --> E

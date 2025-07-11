@@ -26,6 +26,7 @@ from mcp.types import (
 )
 
 from mcp_agent.core.context_dependent import ContextDependent
+from mcp_agent.core import instrument
 from mcp_agent.tracing.semconv import (
     GEN_AI_AGENT_NAME,
     GEN_AI_REQUEST_MAX_TOKENS,

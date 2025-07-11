@@ -35,6 +35,7 @@ from mcp.types import (
 # from mcp_agent import console
 # from mcp_agent.agents.agent import HUMAN_INPUT_TOOL_NAME
 from mcp_agent.config import AnthropicSettings
+from mcp_agent.core import instrument
 from mcp_agent.executor.workflow_task import workflow_task
 from mcp_agent.tracing.semconv import (
     GEN_AI_AGENT_NAME,
@@ -164,12 +165,20 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         The default implementation uses Claude as the LLM.
         Override this method to use a different LLM.
         """
-        tracer = get_tracer(self.context)
-        with tracer.start_as_current_span(
-            f"{self.__class__.__name__}.{self.name}.generate"
-        ) as span:
-            span.set_attribute(GEN_AI_AGENT_NAME, self.agent.name)
-            self._annotate_span_for_generation_message(span, message)
+        # Emit before_llm_generate hook
+        await instrument._emit(
+            "before_llm_generate",
+            llm=self,
+            prompt=message
+        )
+        
+        try:
+            tracer = get_tracer(self.context)
+            with tracer.start_as_current_span(
+                f"{self.__class__.__name__}.{self.name}.generate"
+            ) as span:
+                span.set_attribute(GEN_AI_AGENT_NAME, self.agent.name)
+                self._annotate_span_for_generation_message(span, message)
 
             config = self.context.config
             messages: List[MessageParam] = []
@@ -352,7 +361,25 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                     )
                     span.set_attributes(response_data)
 
+            # Emit after_llm_generate hook on success
+            await instrument._emit(
+                "after_llm_generate",
+                llm=self,
+                prompt=message,
+                response=responses
+            )
+            
             return responses
+        except Exception as e:
+            # Emit after_llm_generate hook even on error
+            await instrument._emit(
+                "after_llm_generate",
+                llm=self,
+                prompt=message,
+                response=None,
+                error=e
+            )
+            raise
 
     async def generate_str(
         self,

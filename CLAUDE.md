@@ -228,6 +228,31 @@ pnpm test:coverage
 | E2E | Playwright | Full workflows |
 | Performance | pytest-benchmark | <1.5s for 50k spans |
 
+### Testing mcp-agent Core Changes
+
+**CRITICAL**: Before pushing any changes that touch mcp-agent core functionality (e.g., hooks, instrumentation, workflow execution), you MUST run the full mcp-agent test suite:
+
+```bash
+# Ensure all dependencies are installed
+uv sync --all-extras --all-packages --group dev
+
+# Run all tests (should complete in <45s)
+make tests
+# or
+uv run pytest
+
+# If you've modified specific areas, test them first:
+uv run pytest tests/agents/           # Agent functionality
+uv run pytest tests/executor/         # Workflow execution
+uv run pytest tests/workflows/llm/    # LLM providers
+```
+
+Common issues and fixes:
+- **Missing dependencies**: Run `uv sync --all-extras --all-packages --group dev`
+- **Syntax errors**: Check any modified Python files for proper indentation
+- **Import errors**: Ensure new modules are properly exported in `__init__.py`
+- **Different Python versions**: Use `uv run pytest` to ensure consistent environment
+
 ## Common Scripts
 → package.json & scripts/*.sh
 
@@ -390,3 +415,6 @@ When CodeRabbit reviews a PR, follow this process:
 
 ## Remember
 Inspector should be so useful we cannot imagine developing mcp-agent without it. Every PR should make debugging easier, not just add features.
+
+## Memory
+• Always use `uv` (Universal Virtual) for package management instead of legacy `pip`

@@ -96,6 +96,47 @@ pnpm test
 pnpm run type-check
 ```
 
+### Testing mcp-agent Core Changes
+
+**IMPORTANT**: If your changes touch any mcp-agent core functionality (not just inspector-specific code), you MUST run the full mcp-agent test suite before pushing:
+
+```bash
+# Sync all dependencies first
+uv sync --all-extras --all-packages --group dev
+
+# Run the full test suite (839 tests as of 2025-07)
+make tests
+# or directly:
+uv run pytest
+
+# For faster iteration, test specific modules first:
+uv run pytest tests/agents/           # If you changed agent.py
+uv run pytest tests/executor/         # If you changed workflow execution
+uv run pytest tests/workflows/llm/    # If you changed LLM providers
+uv run pytest tests/inspector/        # For inspector-specific changes
+```
+
+**Common test failures and solutions**:
+
+1. **Import errors**: Usually means missing dependencies
+   ```bash
+   uv sync --all-extras --all-packages --group dev
+   ```
+
+2. **Syntax errors**: Often from incomplete try/except blocks
+   - Check indentation is consistent
+   - Ensure all `try:` blocks have `except:` or `finally:`
+
+3. **Python version mismatch**: Use `uv run` prefix
+   ```bash
+   uv run pytest  # Uses the correct Python version
+   ```
+
+4. **Test isolation issues**: Clear any cached state
+   ```bash
+   rm -rf .pytest_cache __pycache__
+   ```
+
 ## Debugging Inspector
 
 ### Debug Mode
@@ -968,6 +1009,7 @@ Before submitting any PR, ensure you have:
 - [ ] All tests pass locally
 - [ ] Performance tests added for critical paths
 - [ ] E2E tests updated if UI changed
+- [ ] **If touching mcp-agent core**: Full test suite passes (`make tests`)
 
 ### Documentation
 - [ ] Updated relevant .md files in same PR

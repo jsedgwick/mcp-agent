@@ -22,6 +22,7 @@ from mcp.types import (
 )
 
 from mcp_agent.core.context import Context
+from mcp_agent.core import instrument
 from mcp_agent.tracing.semconv import GEN_AI_AGENT_NAME, GEN_AI_TOOL_NAME
 from mcp_agent.tracing.telemetry import (
     annotate_span_for_call_tool_result,
@@ -835,57 +836,83 @@ class Agent(BaseModel):
     async def call_tool(
         self, name: str, arguments: dict | None = None, server_name: str | None = None
     ) -> CallToolResult:
+        # Emit before_tool_call hook
+        await instrument._emit(
+            "before_tool_call", tool_name=name, args=arguments, context=self.context
+        )
+
         # Call the tool on the server
         if not self.initialized:
             await self.initialize()
 
-        tracer = get_tracer(self.context)
-        with tracer.start_as_current_span(
-            f"{self.__class__.__name__}.{self.name}.call_tool"
-        ) as span:
-            if self.context.tracing_enabled:
-                span.set_attribute(GEN_AI_AGENT_NAME, self.name)
-                span.set_attribute(GEN_AI_TOOL_NAME, name)
-                span.set_attribute("initialized", self.initialized)
+        try:
+            tracer = get_tracer(self.context)
+            with tracer.start_as_current_span(
+                f"{self.__class__.__name__}.{self.name}.call_tool"
+            ) as span:
+                if self.context.tracing_enabled:
+                    span.set_attribute(GEN_AI_AGENT_NAME, self.name)
+                    span.set_attribute(GEN_AI_TOOL_NAME, name)
+                    span.set_attribute("initialized", self.initialized)
 
-                if server_name:
-                    span.set_attribute("server_name", server_name)
+                    if server_name:
+                        span.set_attribute("server_name", server_name)
 
-                if arguments is not None:
-                    record_attributes(span, arguments, "arguments")
+                    if arguments is not None:
+                        record_attributes(span, arguments, "arguments")
 
-            def _annotate_span_for_result(result: CallToolResult):
-                if not self.context.tracing_enabled:
-                    return
-                annotate_span_for_call_tool_result(span, result)
+                def _annotate_span_for_result(result: CallToolResult):
+                    if not self.context.tracing_enabled:
+                        return
+                    annotate_span_for_call_tool_result(span, result)
 
-            if name == HUMAN_INPUT_TOOL_NAME:
-                # Call the human input tool
-                result = await self._call_human_input_tool(arguments)
-                _annotate_span_for_result(result)
-                return result
-            elif name in self._function_tool_map:
-                # Call local function and return the result as a text response
-                tool = self._function_tool_map[name]
-                result = await tool.run(arguments)
-                result = CallToolResult(
-                    content=[TextContent(type="text", text=str(result))]
+                result: CallToolResult
+
+                if name == HUMAN_INPUT_TOOL_NAME:
+                    # Call the human input tool
+                    result = await self._call_human_input_tool(arguments)
+                    _annotate_span_for_result(result)
+                elif name in self._function_tool_map:
+                    # Call local function and return the result as a text response
+                    tool = self._function_tool_map[name]
+                    tool_result = await tool.run(arguments)
+                    result = CallToolResult(
+                        content=[TextContent(type="text", text=str(tool_result))]
+                    )
+                    _annotate_span_for_result(result)
+                else:
+                    executor = self.context.executor
+                    result = await executor.execute(
+                        self._agent_tasks.call_tool_task,
+                        CallToolRequest(
+                            agent_name=self.name,
+                            name=name,
+                            arguments=arguments,
+                            server_name=server_name,
+                        ),
+                    )
+                    _annotate_span_for_result(result)
+
+                # Emit after_tool_call hook
+                await instrument._emit(
+                    "after_tool_call",
+                    tool_name=name,
+                    args=arguments,
+                    result=result,
+                    context=self.context,
                 )
-                _annotate_span_for_result(result)
+
                 return result
-            else:
-                executor = self.context.executor
-                result: CallToolResult = await executor.execute(
-                    self._agent_tasks.call_tool_task,
-                    CallToolRequest(
-                        agent_name=self.name,
-                        name=name,
-                        arguments=arguments,
-                        server_name=server_name,
-                    ),
-                )
-                _annotate_span_for_result(result)
-                return result
+        except Exception as exc:
+            # Emit error_tool_call hook
+            await instrument._emit(
+                "error_tool_call",
+                tool_name=name,
+                args=arguments,
+                exc=exc,
+                context=self.context,
+            )
+            raise
 
     async def _call_human_input_tool(
         self, arguments: dict | None = None
