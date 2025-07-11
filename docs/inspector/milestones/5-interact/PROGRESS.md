@@ -56,9 +56,29 @@ None yet.
    - **Mitigation**: Clear boundaries, no real side effects
    - **Status**: Not yet encountered
 
+## Security Considerations
+
+### State Injection Security
+- **Threat**: Malicious state injection could compromise workflow integrity
+- **Mitigation Tasks**:
+  1. Input validation and sanitization for all injected state
+  2. Audit logging of all state modifications
+  3. Permission checks before allowing state changes
+  4. Sandbox isolation to prevent real side effects
+  5. Clear warnings about risks of state modification
+
+### REPL Security
+- **Threat**: Arbitrary code execution through REPL interface
+- **Mitigation Tasks**:
+  1. Restrict REPL to read-only operations by default
+  2. Implement allowlist of safe operations
+  3. Require explicit confirmation for state-modifying operations
+  4. Log all REPL commands for audit trail
+
 ## Notes for Implementation
 
 - Debug mode should have minimal overhead when disabled
-- Consider security implications of state modification
+- Security validations must be enforced at every state injection point
 - Ensure all interactive features are intuitive
 - Add comprehensive examples and tutorials
+- Consider adding a "safe mode" that restricts dangerous operations

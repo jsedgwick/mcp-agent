@@ -116,7 +116,7 @@ The Inspector captures detailed protocol-level information for debugging transpo
 | MCP Spec Section | Inspector Attribute | Description | Hook |
 |------------------|---------------------|-------------|------|
 | §3.1 JSON-RPC | mcp.jsonrpc.version | Always "2.0" | before_rpc_request |
-| §3.2 Request | mcp.rpc.method | RPC method (tools/call, etc) | before_rpc_request |
+| §3.2 Request | mcp.rpc.method | RPC method (tools/call, etc.) | before_rpc_request |
 | §3.2 Request ID | mcp.rpc.id | JSON-RPC request ID | before_rpc_request |
 | §3.3 Transport | mcp.rpc.transport | stdio\|sse\|http\|websocket | before_rpc_request |
 | §3.4 Response | mcp.rpc.duration_ms | Round-trip time | after_rpc_response |
@@ -158,7 +158,7 @@ if len(json_str) > 30720:  # 30KB
     json_str = json_str[:30720]
 ```
 
-**Impact**: Very large prompts or tool outputs may be truncated in the UI. Check for `*_truncated=true` attributes.
+**Impact**: Large prompts or tool outputs (> 30 KB) may be truncated in the UI. Check for `*_truncated=true` attributes.
 
 ### 2. Session ID Semantics (Extension)
 

@@ -94,6 +94,38 @@ if self.debug_mode:
 - Confirmation modal for changes
 - Rollback on error
 
+---
+
+### interact/feat/security-validations
+**Priority**: Critical  
+**Description**: Security hardening for interactive features
+
+**Acceptance Criteria**:
+- Input validation for all state injections
+- Audit logging of all modifications
+- Permission checks before state changes
+- Sandbox isolation enforcement
+- REPL command allowlisting
+
+**Implementation Notes**:
+```python
+# State injection validation
+def validate_state_injection(state_data: dict) -> bool:
+    # Check for dangerous keys
+    dangerous_patterns = ['__', 'eval', 'exec', 'system']
+    if any(pattern in str(state_data) for pattern in dangerous_patterns):
+        raise SecurityError("Potentially dangerous state detected")
+    
+    # Validate against schema
+    return validate_against_workflow_schema(state_data)
+```
+
+**Testing Strategy**:
+- Attempt injection of malicious payloads
+- Verify audit logs capture all changes
+- Test permission boundaries
+- Ensure sandbox cannot affect host system
+
 ## Task Dependencies
 
 ```mermaid

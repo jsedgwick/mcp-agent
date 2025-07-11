@@ -86,6 +86,9 @@ Until 6-production ships, this flag defaults to *false*.
 All file access is strictly validated:
 
 ```python
+import re
+from pathlib import Path
+
 def validate_trace_path(session_id: str) -> Path:
     # Sanitize session_id
     clean_id = re.sub(r'[^a-zA-Z0-9-_]', '', session_id)
@@ -93,7 +96,9 @@ def validate_trace_path(session_id: str) -> Path:
     # Construct path
     trace_path = TRACES_DIR / f"{clean_id}.jsonl.gz"
     
-    # Verify within allowed directory
+    # Verify within allowed directory (Python 3.9+)
+    # For Python 3.8 compatibility use:
+    # if not str(trace_path.resolve()).startswith(str(TRACES_DIR.resolve())):
     if not trace_path.resolve().is_relative_to(TRACES_DIR.resolve()):
         raise SecurityError("Path traversal attempt detected")
     

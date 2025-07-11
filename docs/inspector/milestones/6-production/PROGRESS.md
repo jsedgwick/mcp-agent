@@ -46,7 +46,9 @@ None yet.
 
 1. **Risk**: Security vulnerabilities
    - **Mitigation**: External security audit
-   - **Status**: Not yet scheduled
+   - **Status**: Scheduled for Week 11 (before production release)
+   - **Owner**: Security Team Lead (TBD)
+   - **Due date**: 2 weeks before production milestone completion
 
 2. **Risk**: Temporal version compatibility
    - **Mitigation**: Test against multiple versions

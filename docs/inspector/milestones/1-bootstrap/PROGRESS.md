@@ -25,23 +25,29 @@
 ## In Progress Tasks
 
 ### 🚧 bootstrap/feat/instrumentation-hook-bus
-**Started**: Not yet started  
-**Assigned**: TBD  
-**Blockers**: None  
+**Started**: 2025-07-11  
+**Assignee**: (In git stash)  
+**Status**: Implementation complete, awaiting PR
 **Priority**: CRITICAL - Must be completed first
 
+**Current state**:
+- ✅ Created src/mcp_agent/core/instrument.py with hook bus
+- ✅ Added _emit() calls to Agent.call_tool and Workflow.run
+- ✅ Created comprehensive unit tests
+- ⚠️  AugmentedLLM.generate hooks split to separate task due to complexity
+
 **Next steps**:
-1. Create src/mcp_agent/core/instrument.py with hook bus
-2. Add _emit() calls to Agent.call_tool, Workflow.run, AugmentedLLM.generate
-3. Write unit tests proving <70ns overhead
-4. Validate against instrumentation-hooks.md contract
+1. Create PR from stashed changes
+2. Address any review feedback
+3. Merge to complete the task
 
----
+## Pending Tasks
 
-### 🚧 bootstrap/feat/gateway-health-endpoint
-**Started**: Not yet started  
-**Assigned**: TBD  
+### ⏳ bootstrap/feat/gateway-health-endpoint
+**Status**: Not started  
+**Assignee**: TBD  
 **Blockers**: None  
+**Estimated effort**: 3-4 hours
 
 **Next steps**:
 1. Implement full gateway.py with Starlette router
@@ -49,13 +55,18 @@
 3. Implement standalone server mode
 4. Write unit tests
 
----
+### ⏳ bootstrap/feat/llm-generate-hooks
+**Status**: Not started  
+**Dependencies**: instrumentation-hook-bus (in progress)  
+**Estimated effort**: 3-4 hours
+**Priority**: HIGH - Needed for telemetry
 
-## Pending Tasks
+**Description**: Add hooks to all LLM provider implementations
+**Note**: Split from instrumentation-hook-bus task due to complexity across multiple providers
 
 ### ⏳ bootstrap/feat/telemetry-span-attributes
 **Status**: Not started  
-**Dependencies**: Blocked by instrumentation-hook-bus  
+**Dependencies**: Blocked by instrumentation-hook-bus and llm-generate-hooks  
 **Estimated effort**: 2-4 hours
 
 ### ⏳ bootstrap/feat/ui-react-scaffold  

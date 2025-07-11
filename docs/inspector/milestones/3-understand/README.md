@@ -68,12 +68,16 @@ if len(snapshot) > 10240:  # 10KB limit
 
 **Implementation Notes**:
 ```python
+from fastapi import HTTPException, Response
+
 @router.post("/signal/{session_id}")
 async def send_signal(session_id: str, body: SignalPayload):
     workflow = registry.get(session_id)
     if not workflow:
-        raise HTTPException(404)
+        raise HTTPException(status_code=404, detail="Session not found")
+    # 202 Accepted indicates async signal delivery
     await workflow.signal(body.signal, body.payload)
+    return Response(status_code=202)
 ```
 - Update docs/inspector/openapi.yaml if this task changes the HTTP contract
 

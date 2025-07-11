@@ -53,13 +53,19 @@ An embedded, zero-dependency debugging and observability tool for mcp-agent. It 
 
 ### Installation
 ```bash
-# Install with the 'inspector' extra
+# Fast path (requires uv - https://github.com/astral-sh/uv)
 uv pip install "mcp-agent[inspector]"
+
+# Standard Python tooling
+python -m pip install "mcp-agent[inspector]"
 
 # Or in development mode
 git clone https://github.com/your-org/mcp-agent-inspector
 cd mcp-agent-inspector
+# With uv
 uv pip install -e ".[dev]"
+# With standard pip
+python -m pip install -e ".[dev]"
 
 # Frontend setup (one-time)
 cd packages/inspector_ui
@@ -273,7 +279,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/) for all c
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation only changes
-- `style`: Code style changes (formatting, missing semicolons, etc)
+- `style`: Code style changes (formatting, missing semicolons, etc.)
 - `refactor`: Code change that neither fixes a bug nor adds a feature
 - `perf`: Performance improvement
 - `test`: Adding missing tests or correcting existing tests
@@ -350,6 +356,37 @@ Example PROGRESS.md update:
 **Deviations**: None
 **Lessons learned**: Following exact spec made implementation smooth
 ```
+
+## Handling CodeRabbit Reviews
+
+When CodeRabbit reviews a PR, follow this process:
+
+1. **Get the PR review** using GitHub CLI:
+   ```bash
+   gh pr view <PR_NUMBER> --repo <OWNER/REPO> --json reviews,comments
+   ```
+
+2. **Create a todo list** to track all feedback items:
+   - High priority: Security issues, bugs, missing error handling
+   - Medium priority: Performance issues, documentation gaps
+   - Low priority: Style issues, minor improvements
+
+3. **Address feedback systematically**:
+   - Start with high-priority items
+   - Update todo status as you progress
+   - Test changes before committing
+
+4. **Common CodeRabbit feedback categories**:
+   - **Task clarity**: Ensure milestone PROGRESS.md files have clear status
+   - **Code safety**: Add proper error handling and imports
+   - **Documentation**: Fix spelling, formatting, language specs
+   - **Security**: Add threat modeling and validation
+   - **Performance**: Add concrete metrics and timelines
+
+5. **Respond to the review**:
+   - Mark resolved comments as outdated
+   - Explain any feedback you disagree with
+   - Thank the bot for catching issues
 
 ## Remember
 Inspector should be so useful we cannot imagine developing mcp-agent without it. Every PR should make debugging easier, not just add features.

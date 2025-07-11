@@ -4,7 +4,7 @@
 
 ## 1. Folder Layout
 
-```
+```text
 tests/
 ├── unit/          # pure-python, no IO
 ├── integration/   # file IO, network to localhost
@@ -78,7 +78,7 @@ export const mockSSE = () => {
 
 `tests/golden/` contains reference data:
 
-```
+```text
 tests/golden/
 ├── trace-mini.jsonl.gz       # 15 spans: tool, resource, prompt calls
 ├── trace-large.jsonl.gz      # 50k spans for perf testing

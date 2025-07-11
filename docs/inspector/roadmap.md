@@ -258,8 +258,8 @@ Making sense of complex workflows through rich visualizations.
 **Full Details**: See [milestones/4-visualize/README.md](milestones/4-visualize/README.md)
 
 ### visualize/feat/plugin-architecture
-WHY: extensible visualisation system.
-WHAT: VisualiserPlugin interface; registry with match() predicate; built-in fallback.
+WHY: extensible visualization system.
+WHAT: VisualizerPlugin interface; registry with match() predicate; built-in fallback.
 DONE-WHEN: new plugins can be registered without modifying core.
 
 ### visualize/feat/plugin-orchestrator-dag
@@ -391,7 +391,7 @@ No milestones pushed back: tasks pulled into 2-observe are low-effort (~2–3 de
 ────────────────────────────────────────
 • API schema files (OpenAPI + JSON-Schema) per milestone - see [openapi.yaml](openapi.yaml)
 • SpanMeta v1 schema document with truncation rules
-• React component storybook for visualiser plugins
+• React component storybook for visualizer plugins
 • Performance test harness (100k spans target)
 • Security hardening checklist
 • Contribution guide for community plugins

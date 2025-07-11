@@ -870,6 +870,87 @@ const debouncedSearch = useMemo(
 )
 ```
 
+## Handling CodeRabbit PR Reviews
+
+CodeRabbit automatically reviews PRs and provides actionable feedback. Here's how to handle reviews effectively:
+
+### 1. Accessing CodeRabbit Feedback
+
+```bash
+# View PR with reviews
+gh pr view <PR_NUMBER> --repo <OWNER/REPO> --json reviews,comments
+
+# Or use the web interface
+gh pr view <PR_NUMBER> --web
+```
+
+### 2. Processing Feedback
+
+CodeRabbit typically provides:
+- **Actionable comments**: Specific issues with suggested fixes
+- **Nitpick comments**: Minor improvements (prefixed with 🧹)
+- **Summary statistics**: Files changed, issues found
+
+### 3. Common Feedback Patterns
+
+| Category | Common Issues | How to Fix |
+|----------|--------------|------------|
+| **Code Safety** | Missing imports, error handling | Add proper imports, try/except blocks |
+| **Documentation** | Missing language specs, typos | Add language tags to code blocks, fix spelling |
+| **Task Clarity** | Confusing status in PROGRESS.md | Move "not started" tasks from "In Progress" to "Pending" |
+| **Performance** | Missing metrics, vague timelines | Add concrete numbers and dates |
+| **Security** | Missing validation, threat modeling | Add input validation, security tasks |
+| **Style** | Inconsistent formatting | Run formatters, fix linting issues |
+
+### 4. Addressing Feedback Workflow
+
+```bash
+# 1. Create a todo list for tracking
+# Use TodoWrite tool to track all feedback items
+
+# 2. Fix issues by priority
+# High: Security, bugs, missing error handling
+# Medium: Performance, documentation
+# Low: Style, minor improvements
+
+# 3. Test your changes
+pytest tests/  # Run tests
+mypy --strict  # Type check
+ruff check     # Lint
+
+# 4. Commit with clear messages
+git commit -m "fix(inspector): address CodeRabbit review feedback
+
+- Add missing error handling to signal endpoints
+- Fix code block language specifications
+- Update task status clarity in PROGRESS.md files
+- Add security validation for state injection
+
+Addresses PR review comments"
+```
+
+### 5. Responding to Reviews
+
+After addressing feedback:
+1. Reply to each comment explaining what was done
+2. Mark resolved conversations as outdated
+3. Request re-review if substantial changes were made
+4. Thank the bot for catching issues (good karma!)
+
+### 6. Example Response Template
+
+```markdown
+Thanks @coderabbitai for the thorough review! I've addressed all the feedback:
+
+✅ **Fixed**: Added error handling to all code examples
+✅ **Fixed**: Added language specifications to code blocks
+✅ **Fixed**: Clarified task status in milestone PROGRESS.md files
+✅ **Fixed**: Added security considerations for state injection
+✅ **Fixed**: Updated performance metrics with concrete values
+
+The only suggestion I didn't implement was X because [valid reason].
+```
+
 ## PR Checklist
 
 Before submitting any PR, ensure you have:
@@ -905,7 +986,7 @@ Before submitting any PR, ensure you have:
 
 We follow [Conventional Commits](https://www.conventionalcommits.org/) specification:
 
-```
+```text
 <type>(<scope>): <subject>
 
 [optional body]
@@ -917,7 +998,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/) specifica
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation only changes
-- `style`: Code style changes (formatting, missing semicolons, etc)
+- `style`: Code style changes (formatting, missing semicolons, etc.)
 - `refactor`: Code change that neither fixes a bug nor adds a feature
 - `perf`: Performance improvement
 - `test`: Adding missing tests or correcting existing tests
@@ -933,7 +1014,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/) specifica
 - `e2e`: End-to-end tests
 
 #### Examples
-```
+```text
 feat(inspector): add progress tracking to spans
 
 - Implement ProgressUpdate event type
@@ -944,7 +1025,7 @@ Task: understand/feat/progress-cancellation
 Closes #123
 ```
 
-```
+```text
 fix(gateway): handle missing trace files gracefully
 
 Previously the gateway would crash with FileNotFoundError when
@@ -956,7 +1037,7 @@ Fixes #456
 
 #### Task References
 When implementing milestone tasks, always include the task ID:
-```
+```text
 feat(inspector): create package skeleton
 
 - Add inspector module with mount function

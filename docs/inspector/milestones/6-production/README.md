@@ -31,11 +31,17 @@ The production milestone hardens Inspector for enterprise deployment. It adds au
 **Implementation Notes**:
 ```python
 # Temporal signal handling
+from temporalio.exceptions import WorkflowNotFoundError
+from fastapi import HTTPException
+
 @router.post("/temporal/signal/{workflow_id}")
 async def signal_temporal(workflow_id: str, signal: SignalPayload):
     client = await get_temporal_client()
-    handle = client.get_workflow_handle(workflow_id)
-    await handle.signal(signal.name, signal.payload)
+    try:
+        handle = client.get_workflow_handle(workflow_id)
+        await handle.signal(signal.name, signal.payload)
+    except WorkflowNotFoundError:
+        raise HTTPException(status_code=404, detail="Workflow not found")
 ```
 - Update docs/inspector/openapi.yaml if this task changes the HTTP contract
 
