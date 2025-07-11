@@ -15,6 +15,7 @@ def mount(app: Optional[Any] = None, *, expose: bool = False, auth: Optional[Any
     This is a stub implementation for M0-A milestone.
     Full implementation comes in M0-B.
     """
-    # M0-A: Stub function for re-export
-    # Full implementation in M0-B
-    pass
+    # M0-A: Stub function for re-export — remove once implemented in M0-B
+    raise NotImplementedError(
+        "mcp-agent-inspector: `mount` is not yet implemented (milestone M0-B)."
+    )
