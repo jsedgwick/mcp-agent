@@ -1,0 +1,191 @@
+openapi: 3.1.0
+info:
+  title: mcp-agent-inspector HTTP API
+  version: 0.1.0
+  description: >
+    Canonical schema for all Inspector routes.
+    • Schemathesis contract tests import this file.
+    • Front-end Zod types are generated via `pnpm run gen:schemas`.
+
+servers:
+  - url: http://localhost:{port}/_inspector
+    variables:
+      port:
+        default: "7800"
+
+paths:
+  /health:
+    get:
+      summary: Health probe
+      operationId: getHealth
+      responses:
+        "200":
+          description: Inspector is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /sessions:
+    get:
+      summary: List live + historical sessions
+      operationId: listSessions
+      responses:
+        "200":
+          description: Array of SessionMeta
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SessionMeta"
+                  temporal_error:
+                    type: string
+                    description: |
+                      Present only if Temporal lookup failed (graceful degradation).
+
+  /trace/{session_id}:
+    parameters:
+      - $ref: "#/components/parameters/session_id"
+    get:
+      summary: Download gzipped JSONL trace
+      operationId: getTrace
+      responses:
+        "200":
+          description: Full file
+          headers:
+            Content-Encoding:
+              schema:
+                type: string
+                enum: [gzip]
+          content:
+            application/x-jsonlines+gzip:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Partial content (Range request)
+          headers:
+            Content-Range:
+              schema:
+                type: string
+
+  /events:
+    get:
+      summary: Real-time Server-Sent Events stream
+      operationId: getEvents
+      responses:
+        "200":
+          description: Continuous text/event-stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Each line starts with 'data: ' followed by JSON for one InspectorEvent.
+
+  /signal/{session_id}:
+    parameters:
+      - $ref: "#/components/parameters/session_id"
+    post:
+      summary: Deliver control signal to a running workflow
+      operationId: postSignal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignalRequest"
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "404":
+          description: Unknown session
+
+  /cancel/{session_id}:
+    parameters:
+      - $ref: "#/components/parameters/session_id"
+    post:
+      summary: Cancel a running workflow
+      operationId: cancelWorkflow
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "404":
+          description: Unknown session
+
+components:
+  parameters:
+    session_id:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{6,}$"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [name, version]
+      properties:
+        name: { type: string, const: "mcp-agent-inspector" }
+        version: { type: string }
+
+    SessionMeta:
+      type: object
+      required:
+        [id, status, engine, started_at, title]
+      properties:
+        id:
+          type: string
+          description: Internal session_id (UUID or workflow_id)
+        status:
+          type: string
+          enum: [running, paused, failed, completed]
+        engine:
+          type: string
+          enum: [asyncio, temporal, inbound]
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        title:
+          type: string
+        tags:
+          type: array
+          items: { type: string }
+
+    SignalRequest:
+      type: object
+      required: [signal]
+      properties:
+        signal:
+          type: string
+          enum: [human_input_answer, pause, resume]
+        payload:
+          type: object
+          description: Arbitrary JSON payload for the signal
+          additionalProperties: true
