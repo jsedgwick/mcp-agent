@@ -15,6 +15,7 @@ from typing import (
 
 from pydantic import BaseModel, ConfigDict, Field
 from mcp_agent.core.context_dependent import ContextDependent
+from mcp_agent.core import instrument
 from mcp_agent.executor.temporal import TemporalExecutor
 from mcp_agent.executor.temporal.workflow_signal import (
     SignalMailbox,
@@ -239,11 +240,63 @@ class Workflow(ABC, Generic[T], ContextDependent):
                 tasks = []
                 cancel_task = None
                 if self.context.config.execution_engine == "temporal" and handle:
-                    run_task = asyncio.create_task(handle.result())
+                    # Emit before_workflow_run hook for Temporal
+                    await instrument._emit(
+                        "before_workflow_run", workflow=self, context=self.context
+                    )
+
+                    async def _temporal_run_with_hooks():
+                        try:
+                            result = await handle.result()
+                            # Emit after_workflow_run hook
+                            await instrument._emit(
+                                "after_workflow_run",
+                                workflow=self,
+                                context=self.context,
+                                result=result,
+                            )
+                            return result
+                        except Exception as exc:
+                            # Emit error_workflow_run hook
+                            await instrument._emit(
+                                "error_workflow_run",
+                                workflow=self,
+                                context=self.context,
+                                exc=exc,
+                            )
+                            raise
+
+                    run_task = asyncio.create_task(_temporal_run_with_hooks())
                     # TODO: jerron - cancel task not working for temporal
                     tasks.append(run_task)
                 else:
-                    run_task = asyncio.create_task(self.run(*args, **kwargs))
+                    # Emit before_workflow_run hook
+                    await instrument._emit(
+                        "before_workflow_run", workflow=self, context=self.context
+                    )
+
+                    async def _run_with_hooks():
+                        try:
+                            result = await self.run(*args, **kwargs)
+                            # Emit after_workflow_run hook
+                            await instrument._emit(
+                                "after_workflow_run",
+                                workflow=self,
+                                context=self.context,
+                                result=result,
+                            )
+                            return result
+                        except Exception as exc:
+                            # Emit error_workflow_run hook
+                            await instrument._emit(
+                                "error_workflow_run",
+                                workflow=self,
+                                context=self.context,
+                                exc=exc,
+                            )
+                            raise
+
+                    run_task = asyncio.create_task(_run_with_hooks())
                     cancel_task = asyncio.create_task(self._cancel_task())
                     tasks.extend([run_task, cancel_task])
 
