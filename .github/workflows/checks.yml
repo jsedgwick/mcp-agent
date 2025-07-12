@@ -84,5 +84,69 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --all-extras --dev
 
+      - name: Start Inspector test server
+        run: |
+          # Create a minimal test script to start the inspector
+          cat > test_inspector_server.py << 'EOF'
+          import sys
+          import time
+          try:
+              from mcp_agent.inspector import mount
+          except ImportError as e:
+              print(f"Error: {e}", file=sys.stderr)
+              sys.exit(1)
+          
+          # Start inspector in standalone mode
+          try:
+              mount(app=None, port=7800)
+              print("Inspector server started successfully")
+          except Exception as e:
+              print(f"Error starting inspector: {e}", file=sys.stderr)
+              sys.exit(1)
+          
+          # Keep the server running
+          try:
+              while True:
+                  time.sleep(1)
+          except KeyboardInterrupt:
+              pass
+          EOF
+          
+          # Start the server in the background
+          uv run python test_inspector_server.py &
+          INSPECTOR_PID=$!
+          
+          # Store PID for cleanup
+          echo $INSPECTOR_PID > inspector.pid
+          
+          # Wait for server to be ready
+          server_ready=false
+          for i in {1..30}; do
+            if curl -s http://localhost:7800/_inspector/health > /dev/null 2>&1; then
+              echo "Inspector server is ready"
+              server_ready=true
+              break
+            fi
+            echo "Waiting for Inspector server to start... (attempt $i/30)"
+            sleep 1
+          done
+          
+          if [ "$server_ready" = false ]; then
+            echo "Inspector server failed to start within 30 seconds"
+            if [ -f inspector.pid ]; then
+              kill $(cat inspector.pid) 2>/dev/null || true
+            fi
+            exit 1
+          fi
+
       - name: Run contract tests
-        run: uv run schemathesis run docs/inspector/openapi.yaml --checks all --workers auto
+        run: |
+          uv run schemathesis run docs/inspector/openapi.yaml --url http://localhost:7800/_inspector --checks all --workers auto
+          
+      - name: Cleanup Inspector server
+        if: always()
+        run: |
+          if [ -f inspector.pid ]; then
+            kill $(cat inspector.pid) 2>/dev/null || true
+            rm inspector.pid
+          fi
