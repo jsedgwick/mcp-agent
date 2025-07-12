@@ -214,8 +214,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 "jsonrpc": "2.0",
                 "method": request.root.method,
                 "params": request.root.params.model_dump() if request.root.params else None,
-                "id": request.root.id
             }
+            # Some requests (like InitializeRequest) may not have an id field
+            if hasattr(request.root, 'id'):
+                envelope["id"] = request.root.id
             
             # Emit before_rpc_request hook
             if instrument._hooks.get("before_rpc_request"):
@@ -240,8 +242,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 response_envelope = {
                     "jsonrpc": "2.0",
                     "result": res_data,
-                    "id": request.root.id
                 }
+                # Some requests (like InitializeRequest) may not have an id field
+                if hasattr(request.root, 'id'):
+                    response_envelope["id"] = request.root.id
                 
                 # Emit after_rpc_response hook
                 if instrument._hooks.get("after_rpc_response"):

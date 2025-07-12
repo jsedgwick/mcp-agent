@@ -26,8 +26,9 @@ from mcp_agent.inspector.events import (
 
 
 @pytest.fixture
-def app():
+def app(temp_trace_dir):
     """Create a test FastAPI app with inspector mounted."""
+    # Ensure temp_trace_dir is set before mounting
     app = FastAPI()
     mount(app)
     return app
@@ -43,14 +44,14 @@ def client(app):
 def temp_trace_dir(tmp_path):
     """Create a temporary trace directory."""
     # Override the trace directory for testing
-    original = os.environ.get("MCP_TRACES_DIR")
-    os.environ["MCP_TRACES_DIR"] = str(tmp_path)
+    original = os.environ.get("INSPECTOR_STORAGE__TRACES_DIR")
+    os.environ["INSPECTOR_STORAGE__TRACES_DIR"] = str(tmp_path)
     yield tmp_path
     # Restore original
     if original:
-        os.environ["MCP_TRACES_DIR"] = original
+        os.environ["INSPECTOR_STORAGE__TRACES_DIR"] = original
     else:
-        os.environ.pop("MCP_TRACES_DIR", None)
+        os.environ.pop("INSPECTOR_STORAGE__TRACES_DIR", None)
 
 
 def create_test_trace(trace_dir: Path, session_id: str, spans: list[Dict[str, Any]]) -> Path:

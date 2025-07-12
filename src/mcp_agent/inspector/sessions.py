@@ -10,6 +10,8 @@ from typing import List, Optional, Dict, Any
 
 import aiofiles
 
+from .settings import InspectorSettings
+
 
 class SessionMeta:
     """Metadata for a session."""
@@ -54,20 +56,28 @@ async def _extract_session_metadata(trace_path: Path) -> Optional[SessionMeta]:
         SessionMeta object or None if extraction fails
     """
     try:
-        # Remove .jsonl.gz extension
-        session_id = trace_path.name.removesuffix('.jsonl.gz')
+        # Remove extensions to get session ID
+        if trace_path.name.endswith('.jsonl.gz'):
+            session_id = trace_path.name.removesuffix('.jsonl.gz')
+        else:
+            session_id = trace_path.name.removesuffix('.jsonl')
         
         # Read first and last spans to determine start/end times and status
         first_span = None
         last_span = None
         status = "completed"
         
-        async with aiofiles.open(trace_path, 'rb') as f:
-            # Read compressed content
-            content = await f.read()
-            
-        # Decompress and parse line by line
-        lines = gzip.decompress(content).decode('utf-8').strip().split('\n')
+        # Read file content
+        if trace_path.suffix == '.gz':
+            async with aiofiles.open(trace_path, 'rb') as f:
+                content = await f.read()
+            # Decompress and parse line by line
+            lines = gzip.decompress(content).decode('utf-8').strip().split('\n')
+        else:
+            # Plain JSONL file
+            async with aiofiles.open(trace_path, 'r') as f:
+                content = await f.read()
+            lines = content.strip().split('\n')
         
         if lines:
             # Get first span
@@ -151,21 +161,30 @@ async def _extract_session_metadata(trace_path: Path) -> Optional[SessionMeta]:
         return None
 
 
-async def list_sessions() -> List[SessionMeta]:
+async def list_sessions(settings: Optional[InspectorSettings] = None) -> List[SessionMeta]:
     """List all sessions from trace files.
+    
+    Args:
+        settings: Optional InspectorSettings instance. If None, uses environment/defaults.
     
     Returns:
         List of SessionMeta objects sorted by start time (newest first)
     """
-    # Get trace directory from environment or default
-    trace_dir_str = os.environ.get("MCP_TRACES_DIR", "~/.mcp_traces")
-    trace_dir = Path(os.path.expanduser(trace_dir_str))
+    # Get trace directory from settings or environment
+    if settings:
+        trace_dir_str = settings.storage.traces_dir
+    else:
+        # Fallback to environment variable for backward compatibility
+        trace_dir_str = os.environ.get("MCP_TRACES_DIR", "~/.mcp_traces")
+    
+    # Always expand user home directory
+    trace_dir = Path(trace_dir_str).expanduser()
     
     if not trace_dir.exists():
         return []
     
-    # Find all trace files
-    trace_files = list(trace_dir.glob("*.jsonl.gz"))
+    # Find all trace files (both gzipped and uncompressed)
+    trace_files = list(trace_dir.glob("*.jsonl.gz")) + list(trace_dir.glob("*.jsonl"))
     
     # Extract metadata from each file in parallel
     tasks = [_extract_session_metadata(path) for path in trace_files]

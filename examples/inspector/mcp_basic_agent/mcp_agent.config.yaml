@@ -1,0 +1,80 @@
+# Configuration for mcp-agent with Inspector enabled
+# This is a concrete configuration file ready to use
+
+# Inspector configuration - ENABLED BY DEFAULT for this example
+inspector:
+  # Master switch - Inspector is ON
+  enabled: true
+  
+  # Network settings
+  port: 7800
+  host: "127.0.0.1"  # localhost only for security
+  
+  # Storage configuration
+  storage:
+    traces_dir: "~/.mcp_traces"
+    max_trace_size: 104857600  # 100MB before rotation
+    retention_days: 7
+  
+  # Security settings (minimal for local development)
+  security:
+    auth_enabled: false  # No auth for local dev
+    cors_origins: []     # No CORS needed for localhost
+  
+  # Performance tuning
+  performance:
+    sample_rate: 1.0     # Capture all spans for debugging
+    max_sse_clients: 10  # Reduced for local dev
+    sse_buffer_size: 1000
+  
+  # Debug settings
+  debug:
+    debug: false  # Set to true for verbose Inspector logging
+    verbose_spans: false
+
+# OpenTelemetry configuration - MUST be enabled for Inspector to capture traces
+otel:
+  enabled: true
+  exporters: ["file"]  # File exporter writes traces for Inspector to read
+  service_name: "inspector_basic_agent_demo"
+  path_settings:
+    path_pattern: "~/.mcp_traces/{unique_id}.jsonl"  # Inspector reads from here
+    unique_id: "session_id"
+    timestamp_format: "%Y%m%d_%H%M%S"
+
+# MCP server configuration
+mcp:
+  servers:
+    # File system access
+    filesystem:
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem"]
+      # Working directory will be added at runtime
+    
+    # URL fetching capability
+    fetch:
+      command: "uvx"
+      args: ["mcp-server-fetch"]
+
+# Execution engine
+execution_engine: "asyncio"  # Simple asyncio for examples
+
+# Logger configuration
+logger:
+  transports: ["console", "file"]  # Fixed: use transports array
+  level: "info"  # Less verbose for examples
+  path: "mcp-agent.jsonl"
+  progress_display: false
+
+# LLM provider configurations
+# Note: Add your API keys to mcp_agent.secrets.yaml or environment variables
+openai:
+  default_model: "gpt-4o-mini"
+
+anthropic:
+  default_model: "claude-3-haiku-20240307"
+
+# Usage telemetry
+usage_telemetry:
+  enabled: false  # Disabled for examples
+  enable_detailed_telemetry: false

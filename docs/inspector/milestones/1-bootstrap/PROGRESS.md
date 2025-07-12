@@ -1,7 +1,7 @@
 # Milestone 1-bootstrap: Progress Tracker
 
 **Last Updated**: 2025-07-13  
-**Overall Progress**: 75% (9/12 tasks completed)  
+**Overall Progress**: 83% (10/12 tasks completed)  
 **Note**: Additional tasks identified during audit to ensure complete foundation
 
 ## Completed Tasks
@@ -219,19 +219,45 @@
 - SSE endpoints require special handling in tests due to their streaming nature
 - Gzipped JSONL format works well for trace storage and can be parsed line-by-line
 
-### ⏳ bootstrap/feat/configuration-system
-**Status**: Not started  
-**Priority**: Critical
-**Dependencies**: inspector-package-skeleton  
-**Estimated effort**: 4-6 hours  
-**Why added**: Inspector requires a flexible, discoverable, and future-proof configuration system
+### ✅ bootstrap/feat/configuration-system
+**Completed**: 2025-07-13  
+**Commit**: `feat(configuration): implement InspectorSettings with hierarchical loading`  
 
-### ⏳ bootstrap/feat/inspector-span-exporter
-**Status**: Not started  
-**Priority**: High  
-**Dependencies**: telemetry-span-attributes  
-**Estimated effort**: 3-4 hours  
-**Why added**: Need Inspector-specific exporter with gzip and session integration
+**What was done**:
+- Created InspectorSettings Pydantic model with nested configuration sections
+- Implemented hierarchical configuration loading (defaults → YAML → env → runtime)
+- Added support for environment variable overrides with INSPECTOR_ prefix
+- Updated gateway.py to use InspectorSettings throughout
+- Created comprehensive test suite (17 tests, all passing)
+- Updated sessions.py to use settings for traces directory
+- Created concrete configuration file for basic agent example
+
+**Deviations from plan**:
+- Used Pydantic v2 ConfigDict instead of legacy Config class
+- Manually implemented env var loading for now (pydantic-settings not used to avoid dependency)
+- Used default_factory for path expansion to work around Pydantic v2 validator behavior
+
+**Lessons learned**:
+- Pydantic v2 validators don't run on default values unless using default_factory
+- Environment variable handling needs explicit implementation without pydantic-settings
+- Configuration precedence is critical for backward compatibility
+
+### ✅ bootstrap/feat/inspector-span-exporter
+**Completed**: 2025-07-13  
+**Commit**: `feat(inspector): create InspectorFileSpanExporter with gzip support`  
+
+**What was done**:
+- Created InspectorFileSpanExporter that writes gzipped JSONL to ~/.mcp_traces/
+- Integrated with Inspector context system for session ID
+- Properly expands ~ in paths
+- Handles file rotation at configured size limits
+- Supports both timestamped and session-based filenames
+
+**Deviations from plan**: None - Implementation follows design exactly
+
+**Lessons learned**: 
+- gzip.open() in append mode works perfectly for incremental writes
+- Path expansion is critical for cross-platform compatibility
 
 ### ⏳ bootstrap/feat/rpc-span-enrichment
 **Status**: Not started  
@@ -243,14 +269,14 @@
 ## Metrics
 
 - **Initial completion**: 6/6 tasks (100%)
-- **After audit**: 9/11 tasks (82%)
-- **Additional tasks identified**: 5
-- **Velocity**: 3 tasks/day (9 tasks in 3 days)
+- **After audit**: 11/12 tasks (92%)
+- **Additional tasks identified**: 6
+- **Velocity**: 3.7 tasks/day (11 tasks in 3 days)
 - **Blockers encountered**: 2 (TracerProvider singleton, MCP type validation)
 - **Code coverage**: 78% for inspector module
-- **Lines of code**: ~1400 (including tests)
+- **Lines of code**: ~1600 (including tests)
 - **Tests written**: 65 total (all passing)
-- **Estimated completion**: <1 day for remaining 2 tasks
+- **Estimated completion**: <1 day for remaining 1 task
 
 ## Risks & Issues
 

@@ -258,9 +258,12 @@ async def main():
     # Create demo trace files
     session_ids = create_demo_trace_files()
 
-    # Start the inspector
+    # Start the inspector with enabled=True
     print("\n=== Starting Inspector ===\n")
-    mount()
+    from mcp_agent.inspector import InspectorSettings
+    # Create settings with Inspector enabled
+    settings = InspectorSettings(enabled=True)
+    mount(settings=settings)
     await asyncio.sleep(1)
 
     print("Inspector is running at http://localhost:7800/_inspector/ui")

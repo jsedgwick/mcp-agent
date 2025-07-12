@@ -40,7 +40,8 @@ class FileSpanExporter(SpanExporter):
         """Generate a trace filename based on the path settings."""
         # If custom_path is provided, use it directly
         if self.custom_path:
-            return self.custom_path
+            # Expand tilde in custom path
+            return str(Path(self.custom_path).expanduser())
 
         path_pattern = self.path_settings.path_pattern
         unique_id_type = self.path_settings.unique_id
@@ -56,7 +57,9 @@ class FileSpanExporter(SpanExporter):
                 f"Invalid unique_id type: {unique_id_type}. Expected 'session_id' or 'timestamp'."
             )
 
-        return path_pattern.replace("{unique_id}", unique_id)
+        # Replace unique_id and expand tilde
+        path = path_pattern.replace("{unique_id}", unique_id)
+        return str(Path(path).expanduser())
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
         logger.info("EXPORTING SPANS TO FILE", data={"spans": spans})
