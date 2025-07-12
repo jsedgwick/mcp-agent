@@ -14,6 +14,7 @@ from mcp.types import (
     BlobResourceContents,
 )
 from mcp_agent.config import BedrockSettings
+from mcp_agent.core import instrument
 from mcp_agent.executor.workflow_task import workflow_task
 from mcp_agent.utils.common import typed_dict_extras
 from mcp_agent.utils.pydantic_type_serializer import serialize_model, deserialize_model
@@ -94,167 +95,191 @@ class BedrockAugmentedLLM(AugmentedLLM[MessageUnionTypeDef, MessageUnionTypeDef]
         The default implementation uses AWS Nova's ChatCompletion as the LLM.
         Override this method to use a different LLM.
         """
+        # Emit before_llm_generate hook
+        await instrument._emit(
+            "before_llm_generate",
+            llm=self,
+            prompt=message
+        )
+        
+        try:
+            messages: list[MessageUnionTypeDef] = []
+            params = self.get_request_params(request_params)
 
-        messages: list[MessageUnionTypeDef] = []
-        params = self.get_request_params(request_params)
+            if params.use_history:
+                messages.extend(self.history.get())
 
-        if params.use_history:
-            messages.extend(self.history.get())
+            messages.extend(BedrockConverter.convert_mixed_messages_to_bedrock(message))
 
-        messages.extend(BedrockConverter.convert_mixed_messages_to_bedrock(message))
+            response = await self.agent.list_tools()
 
-        response = await self.agent.list_tools()
-
-        tool_config: ToolConfigurationTypeDef = {
-            "tools": [
-                {
-                    "toolSpec": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "inputSchema": {"json": tool.inputSchema},
+            tool_config: ToolConfigurationTypeDef = {
+                "tools": [
+                    {
+                        "toolSpec": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "inputSchema": {"json": tool.inputSchema},
+                        }
                     }
-                }
-                for tool in response.tools
-            ],
-            "toolChoice": {"auto": {}},
-        }
-
-        responses: list[MessageUnionTypeDef] = []
-        model = await self.select_model(params)
-
-        for i in range(params.max_iterations):
-            inference_config = {
-                "maxTokens": params.maxTokens,
-                "temperature": params.temperature,
-                "stopSequences": params.stopSequences or [],
+                    for tool in response.tools
+                ],
+                "toolChoice": {"auto": {}},
             }
 
-            system_content = [
-                {
-                    "text": self.instruction or params.systemPrompt,
-                }
-            ]
+            responses: list[MessageUnionTypeDef] = []
+            model = await self.select_model(params)
 
-            arguments: ConverseRequestTypeDef = {
-                "modelId": model,
-                "messages": messages,
-                "system": system_content,
-                "inferenceConfig": inference_config,
-            }
-
-            if isinstance(tool_config["tools"], list) and len(tool_config["tools"]) > 0:
-                arguments["toolConfig"] = tool_config
-
-            if params.metadata:
-                arguments = {
-                    **arguments,
-                    "additionalModelRequestFields": params.metadata,
+            for i in range(params.max_iterations):
+                inference_config = {
+                    "maxTokens": params.maxTokens,
+                    "temperature": params.temperature,
+                    "stopSequences": params.stopSequences or [],
                 }
 
-            self.logger.debug(f"{arguments}")
-            self._log_chat_progress(chat_turn=(len(messages) + 1) // 2, model=model)
+                system_content = [
+                    {
+                        "text": self.instruction or params.systemPrompt,
+                    }
+                ]
 
-            response: ConverseResponseTypeDef = await self.executor.execute(
-                BedrockCompletionTasks.request_completion_task,
-                RequestCompletionRequest(
-                    config=self.context.config.bedrock,
-                    payload=arguments,
-                ),
-            )
+                arguments: ConverseRequestTypeDef = {
+                    "modelId": model,
+                    "messages": messages,
+                    "system": system_content,
+                    "inferenceConfig": inference_config,
+                }
 
-            if isinstance(response, BaseException):
-                self.logger.error(f"Error: {response}")
-                break
+                if isinstance(tool_config["tools"], list) and len(tool_config["tools"]) > 0:
+                    arguments["toolConfig"] = tool_config
 
-            self.logger.debug(f"{model} response:", data=response)
+                if params.metadata:
+                    arguments = {
+                        **arguments,
+                        "additionalModelRequestFields": params.metadata,
+                    }
 
-            response_as_message = self.convert_message_to_message_param(
-                response["output"]["message"]
-            )
+                self.logger.debug(f"{arguments}")
+                self._log_chat_progress(chat_turn=(len(messages) + 1) // 2, model=model)
 
-            messages.append(response_as_message)
-            responses.append(response["output"]["message"])
-
-            if response["stopReason"] == "end_turn":
-                self.logger.debug(
-                    f"Iteration {i}: Stopping because finish_reason is 'end_turn'"
+                response: ConverseResponseTypeDef = await self.executor.execute(
+                    BedrockCompletionTasks.request_completion_task,
+                    RequestCompletionRequest(
+                        config=self.context.config.bedrock,
+                        payload=arguments,
+                    ),
                 )
-                break
-            elif response["stopReason"] == "stop_sequence":
-                # We have reached a stop sequence
-                self.logger.debug(
-                    f"Iteration {i}: Stopping because finish_reason is 'stop_sequence'"
-                )
-                break
-            elif response["stopReason"] == "max_tokens":
-                # We have reached the max tokens limit
-                self.logger.debug(
-                    f"Iteration {i}: Stopping because finish_reason is 'max_tokens'"
-                )
-                # TODO: saqadri - would be useful to return the reason for stopping to the caller
-                break
-            elif response["stopReason"] == "guardrail_intervened":
-                # Guardrail intervened
-                self.logger.debug(
-                    f"Iteration {i}: Stopping because finish_reason is 'guardrail_intervened'"
-                )
-                break
-            elif response["stopReason"] == "content_filtered":
-                # Content filtered
-                self.logger.debug(
-                    f"Iteration {i}: Stopping because finish_reason is 'content_filtered'"
-                )
-                break
-            elif response["stopReason"] == "tool_use":
-                # Collect all tool results first
-                tool_results = []
 
-                for content in response["output"]["message"]["content"]:
-                    if content.get("toolUse"):
-                        tool_use_block = content["toolUse"]
-                        tool_name = tool_use_block["name"]
-                        tool_args = tool_use_block["input"]
-                        tool_use_id = tool_use_block["toolUseId"]
+                if isinstance(response, BaseException):
+                    self.logger.error(f"Error: {response}")
+                    break
 
-                        tool_call_request = CallToolRequest(
-                            method="tools/call",
-                            params=CallToolRequestParams(
-                                name=tool_name, arguments=tool_args
-                            ),
-                        )
+                self.logger.debug(f"{model} response:", data=response)
 
-                        result = await self.call_tool(
-                            request=tool_call_request, tool_call_id=tool_use_id
-                        )
+                response_as_message = self.convert_message_to_message_param(
+                    response["output"]["message"]
+                )
 
-                        tool_results.append(
-                            {
-                                "toolResult": {
-                                    "content": mcp_content_to_bedrock_content(
-                                        result.content
-                                    ),
-                                    "toolUseId": tool_use_id,
-                                    "status": "error" if result.isError else "success",
+                messages.append(response_as_message)
+                responses.append(response["output"]["message"])
+
+                if response["stopReason"] == "end_turn":
+                    self.logger.debug(
+                        f"Iteration {i}: Stopping because finish_reason is 'end_turn'"
+                    )
+                    break
+                elif response["stopReason"] == "stop_sequence":
+                    # We have reached a stop sequence
+                    self.logger.debug(
+                        f"Iteration {i}: Stopping because finish_reason is 'stop_sequence'"
+                    )
+                    break
+                elif response["stopReason"] == "max_tokens":
+                    # We have reached the max tokens limit
+                    self.logger.debug(
+                        f"Iteration {i}: Stopping because finish_reason is 'max_tokens'"
+                    )
+                    # TODO: saqadri - would be useful to return the reason for stopping to the caller
+                    break
+                elif response["stopReason"] == "guardrail_intervened":
+                    # Guardrail intervened
+                    self.logger.debug(
+                        f"Iteration {i}: Stopping because finish_reason is 'guardrail_intervened'"
+                    )
+                    break
+                elif response["stopReason"] == "content_filtered":
+                    # Content filtered
+                    self.logger.debug(
+                        f"Iteration {i}: Stopping because finish_reason is 'content_filtered'"
+                    )
+                    break
+                elif response["stopReason"] == "tool_use":
+                    # Collect all tool results first
+                    tool_results = []
+
+                    for content in response["output"]["message"]["content"]:
+                        if content.get("toolUse"):
+                            tool_use_block = content["toolUse"]
+                            tool_name = tool_use_block["name"]
+                            tool_args = tool_use_block["input"]
+                            tool_use_id = tool_use_block["toolUseId"]
+
+                            tool_call_request = CallToolRequest(
+                                method="tools/call",
+                                params=CallToolRequestParams(
+                                    name=tool_name, arguments=tool_args
+                                ),
+                            )
+
+                            result = await self.call_tool(
+                                request=tool_call_request, tool_call_id=tool_use_id
+                            )
+
+                            tool_results.append(
+                                {
+                                    "toolResult": {
+                                        "content": mcp_content_to_bedrock_content(
+                                            result.content
+                                        ),
+                                        "toolUseId": tool_use_id,
+                                        "status": "error" if result.isError else "success",
+                                    }
                                 }
-                            }
-                        )
+                            )
 
-                # Create a single message with all tool results
-                if tool_results:
-                    tool_result_message = {
-                        "role": "user",
-                        "content": tool_results,
-                    }
+                    # Create a single message with all tool results
+                    if tool_results:
+                        tool_result_message = {
+                            "role": "user",
+                            "content": tool_results,
+                        }
 
-                    messages.append(tool_result_message)
-                    responses.append(tool_result_message)
+                        messages.append(tool_result_message)
+                        responses.append(tool_result_message)
 
-        if params.use_history:
-            self.history.set(messages)
+            if params.use_history:
+                self.history.set(messages)
 
-        self._log_chat_finished(model=model)
+            self._log_chat_finished(model=model)
 
-        return responses
+            # Emit after_llm_generate hook on success
+            await instrument._emit(
+                "after_llm_generate",
+                llm=self,
+                prompt=message,
+                response=responses
+            )
+            
+            return responses
+        except Exception as e:
+            # Emit error_llm_generate hook on exception
+            await instrument._emit(
+                "error_llm_generate",
+                llm=self,
+                prompt=message,
+                exc=e
+            )
+            raise
 
     async def generate_str(
         self,

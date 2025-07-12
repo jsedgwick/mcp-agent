@@ -17,6 +17,7 @@ from mcp.types import (
 )
 
 from mcp_agent.config import GoogleSettings
+from mcp_agent.core import instrument
 from mcp_agent.executor.workflow_task import workflow_task
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.utils.pydantic_type_serializer import serialize_model, deserialize_model
@@ -78,135 +79,159 @@ class GoogleAugmentedLLM(
         The default implementation uses AWS Nova's ChatCompletion as the LLM.
         Override this method to use a different LLM.
         """
+        # Emit before_llm_generate hook
+        await instrument._emit(
+            "before_llm_generate",
+            llm=self,
+            prompt=message
+        )
+        
+        try:
+            messages: list[types.Content] = []
+            params = self.get_request_params(request_params)
 
-        messages: list[types.Content] = []
-        params = self.get_request_params(request_params)
+            if params.use_history:
+                messages.extend(self.history.get())
 
-        if params.use_history:
-            messages.extend(self.history.get())
+            messages.extend(GoogleConverter.convert_mixed_messages_to_google(message))
 
-        messages.extend(GoogleConverter.convert_mixed_messages_to_google(message))
+            response = await self.agent.list_tools()
 
-        response = await self.agent.list_tools()
-
-        tools = [
-            types.Tool(
-                function_declarations=[
-                    types.FunctionDeclaration(
-                        name=tool.name,
-                        description=tool.description,
-                        parameters=transform_mcp_tool_schema(tool.inputSchema),
-                    )
-                ]
-            )
-            for tool in response.tools
-        ]
-
-        responses: list[types.Content] = []
-        model = await self.select_model(params)
-
-        for i in range(params.max_iterations):
-            inference_config = types.GenerateContentConfig(
-                max_output_tokens=params.maxTokens,
-                temperature=params.temperature,
-                stop_sequences=params.stopSequences or [],
-                system_instruction=self.instruction or params.systemPrompt,
-                tools=tools,
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                    disable=True
-                ),
-                candidate_count=1,
-                **(params.metadata or {}),
-            )
-
-            arguments = {
-                "model": model,
-                "contents": messages,
-                "config": inference_config,
-            }
-
-            self.logger.debug(f"{arguments}")
-            self._log_chat_progress(chat_turn=(len(messages) + 1) // 2, model=model)
-
-            response: types.GenerateContentResponse = await self.executor.execute(
-                GoogleCompletionTasks.request_completion_task,
-                RequestCompletionRequest(
-                    config=self.context.config.google,
-                    payload=arguments,
-                ),
-            )
-
-            if isinstance(response, BaseException):
-                self.logger.error(f"Error: {response}")
-                break
-
-            self.logger.debug(f"{model} response:", data=response)
-
-            if not response.candidates:
-                break
-
-            candidate = response.candidates[0]
-
-            response_as_message = self.convert_message_to_message_param(
-                candidate.content
-            )
-
-            messages.append(response_as_message)
-
-            if not candidate.content or not candidate.content.parts:
-                break
-
-            responses.append(candidate.content)
-
-            function_calls = [
-                self.execute_tool_call(part.function_call)
-                for part in candidate.content.parts
-                if part.function_call
+            tools = [
+                types.Tool(
+                    function_declarations=[
+                        types.FunctionDeclaration(
+                            name=tool.name,
+                            description=tool.description,
+                            parameters=transform_mcp_tool_schema(tool.inputSchema),
+                        )
+                    ]
+                )
+                for tool in response.tools
             ]
 
-            if function_calls:
-                results: list[
-                    types.Content | BaseException | None
-                ] = await self.executor.execute_many(function_calls)
+            responses: list[types.Content] = []
+            model = await self.select_model(params)
 
-                self.logger.debug(
-                    f"Iteration {i}: Tool call results: {str(results) if results else 'None'}"
+            for i in range(params.max_iterations):
+                inference_config = types.GenerateContentConfig(
+                    max_output_tokens=params.maxTokens,
+                    temperature=params.temperature,
+                    stop_sequences=params.stopSequences or [],
+                    system_instruction=self.instruction or params.systemPrompt,
+                    tools=tools,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    ),
+                    candidate_count=1,
+                    **(params.metadata or {}),
                 )
 
-                function_response_parts: list[types.Part] = []
-                for result in results:
-                    if (
-                        result
-                        and not isinstance(result, BaseException)
-                        and result.parts
-                    ):
-                        function_response_parts.extend(result.parts)
-                    else:
-                        self.logger.error(
-                            f"Warning: Unexpected error during tool execution: {result}. Continuing..."
-                        )
-                        function_response_parts.append(
-                            types.Part.from_text(text=f"Error executing tool: {result}")
-                        )
+                arguments = {
+                    "model": model,
+                    "contents": messages,
+                    "config": inference_config,
+                }
 
-                # Combine all parallel function responses into a single message
-                if function_response_parts:
-                    function_response_content = types.Content(
-                        role="tool", parts=function_response_parts
+                self.logger.debug(f"{arguments}")
+                self._log_chat_progress(chat_turn=(len(messages) + 1) // 2, model=model)
+
+                response: types.GenerateContentResponse = await self.executor.execute(
+                    GoogleCompletionTasks.request_completion_task,
+                    RequestCompletionRequest(
+                        config=self.context.config.google,
+                        payload=arguments,
+                    ),
+                )
+
+                if isinstance(response, BaseException):
+                    self.logger.error(f"Error: {response}")
+                    break
+
+                self.logger.debug(f"{model} response:", data=response)
+
+                if not response.candidates:
+                    break
+
+                candidate = response.candidates[0]
+
+                response_as_message = self.convert_message_to_message_param(
+                    candidate.content
+                )
+
+                messages.append(response_as_message)
+
+                if not candidate.content or not candidate.content.parts:
+                    break
+
+                responses.append(candidate.content)
+
+                function_calls = [
+                    self.execute_tool_call(part.function_call)
+                    for part in candidate.content.parts
+                    if part.function_call
+                ]
+
+                if function_calls:
+                    results: list[
+                        types.Content | BaseException | None
+                    ] = await self.executor.execute_many(function_calls)
+
+                    self.logger.debug(
+                        f"Iteration {i}: Tool call results: {str(results) if results else 'None'}"
                     )
-                    messages.append(function_response_content)
-            else:
-                self.logger.debug(
-                    f"Iteration {i}: Stopping because finish_reason is '{candidate.finish_reason}'"
-                )
-                break
 
-        if params.use_history:
-            self.history.set(messages)
+                    function_response_parts: list[types.Part] = []
+                    for result in results:
+                        if (
+                            result
+                            and not isinstance(result, BaseException)
+                            and result.parts
+                        ):
+                            function_response_parts.extend(result.parts)
+                        else:
+                            self.logger.error(
+                                f"Warning: Unexpected error during tool execution: {result}. Continuing..."
+                            )
+                            function_response_parts.append(
+                                types.Part.from_text(text=f"Error executing tool: {result}")
+                            )
 
-        self._log_chat_finished(model=model)
+                    # Combine all parallel function responses into a single message
+                    if function_response_parts:
+                        function_response_content = types.Content(
+                            role="tool", parts=function_response_parts
+                        )
+                        messages.append(function_response_content)
+                else:
+                    self.logger.debug(
+                        f"Iteration {i}: Stopping because finish_reason is '{candidate.finish_reason}'"
+                    )
+                    break
 
-        return responses
+            if params.use_history:
+                self.history.set(messages)
+
+            self._log_chat_finished(model=model)
+
+            # Emit after_llm_generate hook on success
+            await instrument._emit(
+                "after_llm_generate",
+                llm=self,
+                prompt=message,
+                response=responses
+            )
+            
+            return responses
+        except Exception as e:
+            # Emit error_llm_generate hook on exception
+            await instrument._emit(
+                "error_llm_generate",
+                llm=self,
+                prompt=message,
+                exc=e
+            )
+            raise
 
     async def generate_str(
         self,

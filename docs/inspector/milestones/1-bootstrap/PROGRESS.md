@@ -1,7 +1,7 @@
 # Milestone 1-bootstrap: Progress Tracker
 
-**Last Updated**: 2025-07-11  
-**Overall Progress**: 50% (3/6 tasks completed)
+**Last Updated**: 2025-07-13  
+**Overall Progress**: 67% (4/6 tasks completed)
 
 ## Completed Tasks
 
@@ -65,16 +65,26 @@
 - Background thread approach works well for standalone mode
 - Port configuration via environment variable enables test isolation
 
+### ✅ bootstrap/feat/llm-generate-hooks  
+**Completed**: 2025-07-13  
+**PR**: feat(llm): add instrumentation hooks to all LLM providers
+
+**What was done**:
+- Added before_llm_generate, after_llm_generate, and error_llm_generate hooks to all 6 LLM providers (Anthropic, OpenAI, Azure, Bedrock, Google, Ollama)
+- Fixed bug where original prompt was being overwritten in OpenAI and Azure providers
+- Created comprehensive test suite covering all providers and error cases (6 tests)
+- All tests passing (19 tests total in inspector test suite)
+
+**Deviations**: 
+- Had to fix existing bug where the `message` variable was being overwritten in the generate method, causing hooks to receive the wrong prompt value
+- Added `original_prompt` variable to preserve the original prompt throughout the method
+
+**Lessons learned**: 
+- Always preserve original function parameters when they might be reused later
+- Comprehensive testing catches subtle bugs like variable reassignment
+- Hook implementation must be careful about variable scope in long methods
+
 ## Pending Tasks
-
-### ⏳ bootstrap/feat/llm-generate-hooks
-**Status**: Not started  
-**Dependencies**: instrumentation-hook-bus (completed)  
-**Estimated effort**: 3-4 hours
-**Priority**: HIGH - Needed for telemetry
-
-**Description**: Add hooks to all LLM provider implementations
-**Note**: Split from instrumentation-hook-bus task due to complexity across multiple providers
 
 ### ⏳ bootstrap/feat/telemetry-span-attributes
 **Status**: Not started  

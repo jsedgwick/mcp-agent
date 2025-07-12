@@ -77,7 +77,7 @@ DONE-WHEN: Unit test shows callbacks fire when hooks are emitted.
 WHY: import path must exist.
 WHAT: create mcp_agent/inspector/__init__.py with mount and __version__.
 HOW: mount stub, version constant, proper re-exports.
-DONE-WHEN: python -c "from mcp_agent.inspector import mount, __version__" works.
+DONE-WHEN: uv run python -c "from mcp_agent.inspector import mount, __version__" works.
 
 ### bootstrap/feat/gateway-health-endpoint
 WHY: host process must expose HTTP quickly.

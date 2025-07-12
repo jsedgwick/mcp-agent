@@ -36,6 +36,7 @@ from mcp.types import (
 )
 
 from mcp_agent.config import OpenAISettings
+from mcp_agent.core import instrument
 from mcp_agent.executor.workflow_task import workflow_task
 from mcp_agent.tracing.telemetry import get_tracer, telemetry
 from mcp_agent.tracing.semconv import (
@@ -158,218 +159,244 @@ class OpenAIAugmentedLLM(
         The default implementation uses OpenAI's ChatCompletion as the LLM.
         Override this method to use a different LLM.
         """
-        tracer = get_tracer(self.context)
-        with tracer.start_as_current_span(
-            f"{self.__class__.__name__}.{self.name}.generate"
-        ) as span:
-            span.set_attribute(GEN_AI_AGENT_NAME, self.agent.name)
-            self._annotate_span_for_generation_message(span, message)
+        # Emit before_llm_generate hook
+        original_prompt = message  # Save the original prompt before it gets overwritten
+        await instrument._emit(
+            "before_llm_generate",
+            llm=self,
+            prompt=message
+        )
+        
+        try:
+            tracer = get_tracer(self.context)
+            with tracer.start_as_current_span(
+                f"{self.__class__.__name__}.{self.name}.generate"
+            ) as span:
+                span.set_attribute(GEN_AI_AGENT_NAME, self.agent.name)
+                self._annotate_span_for_generation_message(span, message)
 
-            messages: List[ChatCompletionMessageParam] = []
-            params = self.get_request_params(request_params)
+                messages: List[ChatCompletionMessageParam] = []
+                params = self.get_request_params(request_params)
 
-            if self.context.tracing_enabled:
-                AugmentedLLM.annotate_span_with_request_params(span, params)
+                if self.context.tracing_enabled:
+                    AugmentedLLM.annotate_span_with_request_params(span, params)
 
-            if params.use_history:
-                messages.extend(self.history.get())
+                if params.use_history:
+                    messages.extend(self.history.get())
 
-            system_prompt = self.instruction or params.systemPrompt
-            if system_prompt and len(messages) == 0:
-                span.set_attribute("system_prompt", system_prompt)
-                messages.append(
-                    ChatCompletionSystemMessageParam(
-                        role="system", content=system_prompt
-                    )
-                )
-            messages.extend((OpenAIConverter.convert_mixed_messages_to_openai(message)))
-
-            response: ListToolsResult = await self.agent.list_tools()
-            available_tools: List[ChatCompletionToolParam] = [
-                ChatCompletionToolParam(
-                    type="function",
-                    function={
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.inputSchema,
-                        # TODO: saqadri - determine if we should specify "strict" to True by default
-                    },
-                )
-                for tool in response.tools
-            ]
-
-            if self.context.tracing_enabled:
-                span.set_attribute(
-                    "available_tools",
-                    [t.get("function", {}).get("name") for t in available_tools],
-                )
-            if not available_tools:
-                available_tools = None
-
-            responses: List[ChatCompletionMessage] = []
-            model = await self.select_model(params)
-            if model:
-                span.set_attribute(GEN_AI_REQUEST_MODEL, model)
-
-            # prefer user from the request params,
-            # otherwise use the default from the config
-            user = params.user or getattr(self.context.config.openai, "user", None)
-            if self.context.tracing_enabled and user:
-                span.set_attribute("user", user)
-
-            total_input_tokens = 0
-            total_output_tokens = 0
-            finish_reasons = []
-
-            for i in range(params.max_iterations):
-                arguments = {
-                    "model": model,
-                    "messages": messages,
-                    "tools": available_tools,
-                }
-
-                if user:
-                    arguments["user"] = user
-
-                if params.stopSequences is not None:
-                    arguments["stop"] = params.stopSequences
-
-                if self._reasoning(model):
-                    arguments = {
-                        **arguments,
-                        # DEPRECATED: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens
-                        # "max_tokens": params.maxTokens,
-                        "max_completion_tokens": params.maxTokens,
-                        "reasoning_effort": self._reasoning_effort,
-                    }
-                else:
-                    arguments = {**arguments, "max_tokens": params.maxTokens}
-                    # if available_tools:
-                    #     arguments["parallel_tool_calls"] = params.parallel_tool_calls
-
-                if params.metadata:
-                    arguments = {**arguments, **params.metadata}
-
-                self.logger.debug(f"{arguments}")
-                self._log_chat_progress(chat_turn=len(messages) // 2, model=model)
-
-                request = RequestCompletionRequest(
-                    config=self.context.config.openai,
-                    payload=arguments,
-                )
-
-                self._annotate_span_for_completion_request(span, request, i)
-
-                response: ChatCompletion = await self.executor.execute(
-                    OpenAICompletionTasks.request_completion_task,
-                    ensure_serializable(request),
-                )
-
-                self.logger.debug(
-                    "OpenAI ChatCompletion response:",
-                    data=response,
-                )
-
-                if isinstance(response, BaseException):
-                    self.logger.error(f"Error: {response}")
-                    span.record_exception(response)
-                    span.set_status(trace.Status(trace.StatusCode.ERROR))
-                    break
-
-                self._annotate_span_for_completion_response(span, response, i)
-
-                total_input_tokens += response.usage.prompt_tokens
-                total_output_tokens += response.usage.completion_tokens
-
-                if not response.choices or len(response.choices) == 0:
-                    # No response from the model, we're done
-                    break
-
-                # TODO: saqadri - handle multiple choices for more complex interactions.
-                # Keeping it simple for now because multiple choices will also complicate memory management
-                choice = response.choices[0]
-                message = choice.message
-                responses.append(message)
-                finish_reasons.append(choice.finish_reason)
-
-                # Fixes an issue with openai validation that does not allow non alphanumeric characters, dashes, and underscores
-                sanitized_name = (
-                    re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
-                    if isinstance(self.name, str)
-                    else None
-                )
-
-                converted_message = self.convert_message_to_message_param(
-                    message, name=sanitized_name
-                )
-                messages.append(converted_message)
-
-                if (
-                    choice.finish_reason in ["tool_calls", "function_call"]
-                    and message.tool_calls
-                ):
-                    # Execute all tool calls in parallel using functools.partial to bind arguments
-                    tool_tasks = [
-                        functools.partial(self.execute_tool_call, tool_call=tool_call)
-                        for tool_call in message.tool_calls
-                    ]
-                    # Wait for all tool calls to complete.
-                    tool_results = await self.executor.execute_many(tool_tasks)
-                    self.logger.debug(
-                        f"Iteration {i}: Tool call results: {str(tool_results) if tool_results else 'None'}"
-                    )
-                    # Add non-None results to messages.
-                    for result in tool_results:
-                        if isinstance(result, BaseException):
-                            self.logger.error(
-                                f"Warning: Unexpected error during tool execution: {result}. Continuing..."
-                            )
-                            span.record_exception(result)
-                            continue
-                        if result is not None:
-                            messages.append(result)
-                elif choice.finish_reason == "length":
-                    # We have reached the max tokens limit
-                    self.logger.debug(
-                        f"Iteration {i}: Stopping because finish_reason is 'length'"
-                    )
-                    span.set_attribute("finish_reason", "length")
-                    # TODO: saqadri - would be useful to return the reason for stopping to the caller
-                    break
-                elif choice.finish_reason == "content_filter":
-                    # The response was filtered by the content filter
-                    self.logger.debug(
-                        f"Iteration {i}: Stopping because finish_reason is 'content_filter'"
-                    )
-                    span.set_attribute("finish_reason", "content_filter")
-                    # TODO: saqadri - would be useful to return the reason for stopping to the caller
-                    break
-                elif choice.finish_reason == "stop":
-                    self.logger.debug(
-                        f"Iteration {i}: Stopping because finish_reason is 'stop'"
-                    )
-                    span.set_attribute("finish_reason", "stop")
-                    break
-
-            if params.use_history:
-                self.history.set(messages)
-
-            self._log_chat_finished(model=model)
-
-            if self.context.tracing_enabled:
-                span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, total_input_tokens)
-                span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, total_output_tokens)
-                span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, finish_reasons)
-
-                for i, res in enumerate(responses):
-                    response_data = (
-                        self.extract_response_message_attributes_for_tracing(
-                            res, prefix=f"response.{i}"
+                system_prompt = self.instruction or params.systemPrompt
+                if system_prompt and len(messages) == 0:
+                    span.set_attribute("system_prompt", system_prompt)
+                    messages.append(
+                        ChatCompletionSystemMessageParam(
+                            role="system", content=system_prompt
                         )
                     )
-                    span.set_attributes(response_data)
+                messages.extend((OpenAIConverter.convert_mixed_messages_to_openai(message)))
 
+                response: ListToolsResult = await self.agent.list_tools()
+                available_tools: List[ChatCompletionToolParam] = [
+                    ChatCompletionToolParam(
+                        type="function",
+                        function={
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": tool.inputSchema,
+                            # TODO: saqadri - determine if we should specify "strict" to True by default
+                        },
+                    )
+                    for tool in response.tools
+                ]
+
+                if self.context.tracing_enabled:
+                    span.set_attribute(
+                        "available_tools",
+                        [t.get("function", {}).get("name") for t in available_tools],
+                    )
+                if not available_tools:
+                    available_tools = None
+
+                responses: List[ChatCompletionMessage] = []
+                model = await self.select_model(params)
+                if model:
+                    span.set_attribute(GEN_AI_REQUEST_MODEL, model)
+
+                # prefer user from the request params,
+                # otherwise use the default from the config
+                user = params.user or getattr(self.context.config.openai, "user", None)
+                if self.context.tracing_enabled and user:
+                    span.set_attribute("user", user)
+
+                total_input_tokens = 0
+                total_output_tokens = 0
+                finish_reasons = []
+
+                for i in range(params.max_iterations):
+                    arguments = {
+                        "model": model,
+                        "messages": messages,
+                        "tools": available_tools,
+                    }
+
+                    if user:
+                        arguments["user"] = user
+
+                    if params.stopSequences is not None:
+                        arguments["stop"] = params.stopSequences
+
+                    if self._reasoning(model):
+                        arguments = {
+                            **arguments,
+                            # DEPRECATED: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens
+                            # "max_tokens": params.maxTokens,
+                            "max_completion_tokens": params.maxTokens,
+                            "reasoning_effort": self._reasoning_effort,
+                        }
+                    else:
+                        arguments = {**arguments, "max_tokens": params.maxTokens}
+                        # if available_tools:
+                        #     arguments["parallel_tool_calls"] = params.parallel_tool_calls
+
+                    if params.metadata:
+                        arguments = {**arguments, **params.metadata}
+
+                    self.logger.debug(f"{arguments}")
+                    self._log_chat_progress(chat_turn=len(messages) // 2, model=model)
+
+                    request = RequestCompletionRequest(
+                        config=self.context.config.openai,
+                        payload=arguments,
+                    )
+
+                    self._annotate_span_for_completion_request(span, request, i)
+
+                    response: ChatCompletion = await self.executor.execute(
+                        OpenAICompletionTasks.request_completion_task,
+                        ensure_serializable(request),
+                    )
+
+                    self.logger.debug(
+                        "OpenAI ChatCompletion response:",
+                        data=response,
+                    )
+
+                    if isinstance(response, BaseException):
+                        self.logger.error(f"Error: {response}")
+                        span.record_exception(response)
+                        span.set_status(trace.Status(trace.StatusCode.ERROR))
+                        break
+
+                    self._annotate_span_for_completion_response(span, response, i)
+
+                    total_input_tokens += response.usage.prompt_tokens
+                    total_output_tokens += response.usage.completion_tokens
+
+                    if not response.choices or len(response.choices) == 0:
+                        # No response from the model, we're done
+                        break
+
+                    # TODO: saqadri - handle multiple choices for more complex interactions.
+                    # Keeping it simple for now because multiple choices will also complicate memory management
+                    choice = response.choices[0]
+                    message = choice.message
+                    responses.append(message)
+                    finish_reasons.append(choice.finish_reason)
+
+                    # Fixes an issue with openai validation that does not allow non alphanumeric characters, dashes, and underscores
+                    sanitized_name = (
+                        re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
+                        if isinstance(self.name, str)
+                        else None
+                    )
+
+                    converted_message = self.convert_message_to_message_param(
+                        message, name=sanitized_name
+                    )
+                    messages.append(converted_message)
+
+                    if (
+                        choice.finish_reason in ["tool_calls", "function_call"]
+                        and message.tool_calls
+                    ):
+                        # Execute all tool calls in parallel using functools.partial to bind arguments
+                        tool_tasks = [
+                            functools.partial(self.execute_tool_call, tool_call=tool_call)
+                            for tool_call in message.tool_calls
+                        ]
+                        # Wait for all tool calls to complete.
+                        tool_results = await self.executor.execute_many(tool_tasks)
+                        self.logger.debug(
+                            f"Iteration {i}: Tool call results: {str(tool_results) if tool_results else 'None'}"
+                        )
+                        # Add non-None results to messages.
+                        for result in tool_results:
+                            if isinstance(result, BaseException):
+                                self.logger.error(
+                                    f"Warning: Unexpected error during tool execution: {result}. Continuing..."
+                                )
+                                span.record_exception(result)
+                                continue
+                            if result is not None:
+                                messages.append(result)
+                    elif choice.finish_reason == "length":
+                        # We have reached the max tokens limit
+                        self.logger.debug(
+                            f"Iteration {i}: Stopping because finish_reason is 'length'"
+                        )
+                        span.set_attribute("finish_reason", "length")
+                        # TODO: saqadri - would be useful to return the reason for stopping to the caller
+                        break
+                    elif choice.finish_reason == "content_filter":
+                        # The response was filtered by the content filter
+                        self.logger.debug(
+                            f"Iteration {i}: Stopping because finish_reason is 'content_filter'"
+                        )
+                        span.set_attribute("finish_reason", "content_filter")
+                        # TODO: saqadri - would be useful to return the reason for stopping to the caller
+                        break
+                    elif choice.finish_reason == "stop":
+                        self.logger.debug(
+                            f"Iteration {i}: Stopping because finish_reason is 'stop'"
+                        )
+                        span.set_attribute("finish_reason", "stop")
+                        break
+
+                if params.use_history:
+                    self.history.set(messages)
+
+                self._log_chat_finished(model=model)
+
+                if self.context.tracing_enabled:
+                    span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, total_input_tokens)
+                    span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, total_output_tokens)
+                    span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, finish_reasons)
+
+                    for i, res in enumerate(responses):
+                        response_data = (
+                            self.extract_response_message_attributes_for_tracing(
+                                res, prefix=f"response.{i}"
+                            )
+                        )
+                        span.set_attributes(response_data)
+
+            # Emit after_llm_generate hook on success
+            await instrument._emit(
+                "after_llm_generate",
+                llm=self,
+                prompt=original_prompt,
+                response=responses
+            )
+            
             return responses
+        except Exception as e:
+            # Emit error_llm_generate hook on exception
+            await instrument._emit(
+                "error_llm_generate",
+                llm=self,
+                prompt=original_prompt,
+                exc=e
+            )
+            raise
 
     async def generate_str(
         self,

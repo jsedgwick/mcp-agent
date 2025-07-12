@@ -371,13 +371,12 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             
             return responses
         except Exception as e:
-            # Emit after_llm_generate hook even on error
+            # Emit error_llm_generate hook on exception
             await instrument._emit(
-                "after_llm_generate",
+                "error_llm_generate",
                 llm=self,
                 prompt=message,
-                response=None,
-                error=e
+                exc=e
             )
             raise
 

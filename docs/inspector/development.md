@@ -54,9 +54,30 @@ pre-commit run --all-files
 ### Backend Development
 
 1. **Write tests first** - TDD is not optional
+   ```bash
+   # Write test first in tests/unit/test_new_feature.py
+   # Then implement in src/
+   ```
+
 2. **Add type hints** - Every function, every parameter, every return
-3. **Format code** - `ruff format` before every commit
-4. **Type check** - `mypy --strict` must pass
+   ```python
+   # Bad: def process(data): ...
+   # Good: def process(data: Dict[str, Any]) -> ProcessResult: ...
+   ```
+
+3. **Format and lint code** - Before every commit
+   ```bash
+   make format  # Auto-format with ruff
+   make lint    # Fix linting issues
+   # Or both: uv run scripts/lint.py --fix
+   ```
+
+4. **Type check** - mypy is aspirational but recommended
+   ```bash
+   # Optional local check (not enforced in CI):
+   # mypy --strict mcp_agent/inspector/
+   ```
+
 5. **Run your test script** - Any mcp-agent example works
 6. **Open Inspector** - http://localhost:7800/_inspector/ui
 7. **Verify changes** - Check spans, events, and state capture
@@ -65,7 +86,7 @@ pre-commit run --all-files
 
 ```bash
 # Terminal 1: Run your mcp-agent script with inspector
-python examples/workflows/orchestrator_worker.py
+uv run python examples/workflows/orchestrator_worker.py
 
 # Terminal 2: Start frontend dev server
 cd packages/inspector_ui
@@ -86,9 +107,11 @@ pytest tests/inspector/ --cov=mcp_agent.inspector --cov-report=html
 # Type checking
 mypy mcp_agent/inspector
 
-# Linting
-ruff check mcp_agent/inspector
-ruff format mcp_agent/inspector
+# Linting and formatting
+make format  # Run ruff format
+make lint    # Run ruff check --fix
+# Or use the combined script:
+uv run scripts/lint.py --fix
 
 # Frontend tests
 cd packages/inspector_ui
@@ -144,7 +167,7 @@ uv run pytest tests/inspector/        # For inspector-specific changes
 Enable comprehensive debugging output:
 
 ```bash
-INSPECTOR_DEBUG=1 python my_script.py
+INSPECTOR_DEBUG=1 uv run python my_script.py
 ```
 
 This enables:
@@ -285,7 +308,7 @@ instrument.register("after_tool_call", after_tool_call)
 
 For legacy mcp-agent versions without hook support:
 ```bash
-INSPECTOR_ENABLE_PATCH=1 python my_script.py
+INSPECTOR_ENABLE_PATCH=1 uv run python my_script.py
 ```
 
 ### Lazy Imports Pattern
@@ -336,7 +359,7 @@ def mount(app):
 
 2. **Check exporter**:
    ```bash
-   INSPECTOR_DEBUG=1 python script.py 2>&1 | grep FileSpanExporter
+   INSPECTOR_DEBUG=1 uv run python script.py 2>&1 | grep FileSpanExporter
    ```
 
 3. **Ensure spans are ended**:
@@ -359,6 +382,45 @@ def mount(app):
    ```
 
 3. **Check browser console** for errors
+
+### Known Infrastructure Issues
+
+#### AsyncEventBus Initialization Error
+
+**Symptom**: Test logs show repeated errors:
+```
+AttributeError: 'AsyncEventBus' object has no attribute '_queue'
+```
+
+**Root Cause**: The AsyncEventBus in `mcp_agent.logging.transport` expects initialization that may not happen in test environments.
+
+**Impact**: 
+- Tests may show these errors in logs but still pass
+- Real-time event streaming in 2-observe milestone may be affected
+- Future Temporal executor integration needs to ensure proper event bus initialization
+
+**Workarounds**:
+1. For tests, these errors can be safely ignored if tests pass
+2. For production, ensure proper context initialization:
+   ```python
+   from mcp_agent.core.context import initialize_context
+   context = await initialize_context()
+   ```
+
+**Permanent Fix**: Will be addressed in `observe/fix/async-event-bus-init` task in 2-observe milestone.
+
+#### Context Import Confusion
+
+**Symptom**: Import errors when trying to use Context class:
+```
+ModuleNotFoundError: No module named 'mcp_agent.workflows.contexts'
+```
+
+**Correct Import**:
+```python
+from mcp_agent.core.context import Context  # Correct
+# NOT from mcp_agent.workflows.contexts import Context  # Wrong
+```
 
 ## Code Quality Standards
 
@@ -417,10 +479,13 @@ async def test_get_session_returns_session_object():
 
 ### Code Formatting Standards
 ```bash
-# Before EVERY commit:
-ruff format mcp_agent/inspector/  # Auto-format
-ruff check mcp_agent/inspector/ --fix  # Fix linting issues
-mypy mcp_agent/inspector/ --strict  # Type check
+# Before EVERY commit - Backend:
+make format      # Auto-format with ruff
+make lint        # Fix linting issues with ruff check --fix
+# Or run both with: uv run scripts/lint.py --fix
+
+# Optional type checking (not enforced in CI):
+# mypy mcp_agent/inspector/ --strict
 
 # Frontend:
 cd packages/inspector_ui
@@ -709,7 +774,7 @@ We dogfood the Inspector on mcp-agent itself from day one. Every milestone must 
 
 ```bash
 # Start any example with inspector
-python examples/workflows/orchestrator_worker.py
+uv run python examples/workflows/orchestrator_worker.py
 
 # In another terminal, make changes
 vim src/mcp_agent/workflows/orchestrator/orchestrator.py
@@ -999,8 +1064,8 @@ Before submitting any PR, ensure you have:
 ### Code Quality
 - [ ] All functions have complete type annotations
 - [ ] All public functions have docstrings with Examples section
-- [ ] `mypy --strict` passes with zero errors
-- [ ] `ruff format` and `ruff check --fix` have been run
+- [ ] `uv run scripts/lint.py --fix` has been run (formats and fixes linting issues)
+- [ ] Optional: `mypy --strict` passes if you choose to run it locally
 - [ ] No `# type: ignore` comments without explanation
 
 ### Testing

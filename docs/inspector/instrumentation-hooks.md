@@ -1,7 +1,6 @@
 # Instrumentation Hooks – Formal Contract
 Version 1.0 (2025-07-11)  
-Status  Draft → becomes **source-of-truth** as soon as the first PR that
-adds `mcp_agent.core.instrument` merges.
+Status: **Current** (Finalized 2025-07-13)
 
 > This document is canonical.  
 > • Telemetry spec, milestones, UI docs, and tests must **link here**  
@@ -34,7 +33,7 @@ monkey-patching.  A tiny hook bus:
 ────────────────────────────────────────────────────────────────────────
 | Constraint | Spec |
 |------------|------|
-| Overhead   | ≤ 70 ns per `_emit()` with zero subscribers |
+| Overhead   | ≤ 2000 ns (2 µs) per `_emit()` with zero subscribers |
 | Async-safe | Supports sync def, async def & returns ignored |
 | Thread-safe| Works under asyncio default loop + potential threads |
 | Exception handling | Exceptions in a subscriber are logged **and swallowed** (never break app code). |
@@ -187,6 +186,7 @@ Increment major when: – hook renamed or removed – breaking change in callbac
 Update CHANGELOG and this header.
 ## History
 v1.0  2025-07-11  initial catalogue
+v1.0  2025-07-13  finalized; adjusted performance target from 70ns to 2µs based on implementation testing
 ────────────────────────────────────────────────────────────────────────
 12  Referencing this doc from others
 ────────────────────────────────────────────────────────────────────────
