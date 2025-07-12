@@ -169,6 +169,56 @@ if request_id:
 
 ---
 
+### observe/feat/inbound-rpc-instrumentation
+**Priority**: Medium  
+**Description**: Add RPC instrumentation for inbound MCP requests  
+**Dependencies**: bootstrap/feat/rpc-instrumentation (for consistency)
+
+**Acceptance Criteria**:
+- FastAPI/Starlette middleware captures raw JSON-RPC envelopes
+- Emits before_rpc_request hook with inbound envelope and transport="http"
+- Emits after_rpc_response hook with response envelope and duration_ms
+- Emits error_rpc_request on failures
+- Works alongside sessions-inbound-mcp session creation
+
+**Implementation Notes**:
+```python
+# In app_server.py middleware:
+class InboundRPCInstrumentationMiddleware:
+    async def dispatch(self, request, call_next):
+        # Read raw body (careful with streaming)
+        body = await request.body()
+        envelope = json.loads(body)
+        
+        # Emit before hook
+        await instrument._emit("before_rpc_request", 
+                             envelope=envelope, 
+                             transport="http")
+        
+        start = time.time()
+        try:
+            # Re-attach body for downstream processing
+            request._body = body
+            response = await call_next(request)
+            
+            # Capture response (if possible)
+            duration_ms = (time.time() - start) * 1000
+            await instrument._emit("after_rpc_response",
+                                 envelope=response_envelope,
+                                 transport="http", 
+                                 duration_ms=duration_ms)
+        except Exception as e:
+            await instrument._emit("error_rpc_request",
+                                 envelope=envelope,
+                                 transport="http",
+                                 exc=e)
+            raise
+```
+
+**Note**: This complements the outbound RPC instrumentation from bootstrap by capturing the server-side of MCP interactions, enabling full end-to-end tracing.
+
+---
+
 ### observe/feat/workflow-pause-signals
 **Priority**: Medium  
 **Description**: Surface paused workflow states
@@ -250,6 +300,7 @@ graph TD
     C --> G
     D --> B
     E[sessions-inbound-mcp] --> A
+    IRPC[inbound-rpc-instrumentation] --> E
     F[workflow-pause-signals] --> C
     G --> H[api-reference-stubs]
     G --> I[e2e-playwright-suite]
