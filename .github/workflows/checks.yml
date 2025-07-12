@@ -84,5 +84,37 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --all-extras --dev
 
+      - name: Start Inspector test server
+        run: |
+          # Create a minimal test script to start the inspector
+          cat > test_inspector_server.py << 'EOF'
+          import time
+          from mcp_agent.inspector import mount
+          
+          # Start inspector in standalone mode
+          mount(app=None, port=7800)
+          
+          # Keep the server running
+          try:
+              while True:
+                  time.sleep(1)
+          except KeyboardInterrupt:
+              pass
+          EOF
+          
+          # Start the server in the background
+          uv run python test_inspector_server.py &
+          INSPECTOR_PID=$!
+          
+          # Wait for server to be ready
+          for i in {1..10}; do
+            if curl -s http://localhost:7800/_inspector/health > /dev/null; then
+              echo "Inspector server is ready"
+              break
+            fi
+            echo "Waiting for Inspector server to start..."
+            sleep 1
+          done
+
       - name: Run contract tests
-        run: uv run schemathesis run docs/inspector/openapi.yaml --checks all --workers auto
+        run: uv run schemathesis run docs/inspector/openapi.yaml --url http://localhost:7800/_inspector --checks all --workers auto

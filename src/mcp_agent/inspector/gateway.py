@@ -5,10 +5,12 @@ from __future__ import annotations
 import atexit
 import os
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import APIRouter, FastAPI
 from starlette.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
 
 if TYPE_CHECKING:  # pragma: no cover
     import uvicorn  # noqa: F401
@@ -87,9 +89,16 @@ def mount(
             "Authentication not yet implemented (milestone 6-production)"
         )
     
+    # Find UI static files directory
+    ui_dist_path = Path(__file__).parent.parent.parent.parent / "packages" / "inspector_ui" / "dist"
+    
     if app is not None:
         # Mount on existing FastAPI app
         app.include_router(_router)
+        
+        # Serve static UI files if they exist
+        if ui_dist_path.exists():
+            app.mount("/_inspector/ui", StaticFiles(directory=str(ui_dist_path), html=True), name="inspector-ui")
     else:
         # Create minimal FastAPI app and run standalone
         standalone_app = FastAPI(
@@ -100,4 +109,9 @@ def mount(
             openapi_url=None,
         )
         standalone_app.include_router(_router)
+        
+        # Serve static UI files if they exist
+        if ui_dist_path.exists():
+            standalone_app.mount("/_inspector/ui", StaticFiles(directory=str(ui_dist_path), html=True), name="inspector-ui")
+        
         _run_local_uvicorn(standalone_app)

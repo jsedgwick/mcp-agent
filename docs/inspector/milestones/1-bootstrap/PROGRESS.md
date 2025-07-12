@@ -113,16 +113,34 @@
 - Mock objects require special handling to avoid infinite Mock chains
 - The hook system provides clean integration without modifying core mcp-agent code
 
-## Pending Tasks
+### ✅ bootstrap/feat/ui-react-scaffold
+**Completed**: 2025-07-13  
+**Commits**: 
+- feat(ui): create React scaffold with Vite
 
-### ⏳ bootstrap/feat/ui-react-scaffold  
-**Status**: Not started  
-**Dependencies**: Blocked by gateway-health-endpoint  
-**Estimated effort**: 4-6 hours
+**What was done**:
+- Created Vite + React + TypeScript project in packages/inspector_ui
+- Configured base URL for /_inspector/ui/ path
+- Implemented "Inspector Online" page that fetches backend version
+- Added proxy configuration for development
+- Updated gateway to serve static files from dist directory
+- Added gen:schemas npm script for OpenAPI type generation
+- Created UI integration tests (5 tests, all passing)
+- Created example script for standalone usage
+
+**Deviations from plan**:
+- None - implementation follows spec exactly
+
+**Lessons learned**:
+- Vite's proxy configuration makes local development seamless
+- StaticFiles mount in FastAPI works well for serving the UI
+- The base path configuration ensures assets load correctly
+
+## Pending Tasks
 
 ### ⏳ bootstrap/ci/github-actions-setup
 **Status**: Not started  
-**Dependencies**: Blocked by other tasks  
+**Dependencies**: All other bootstrap tasks completed  
 **Estimated effort**: 2-3 hours
 
 ## Metrics
