@@ -149,11 +149,12 @@ async def before_llm_generate(llm, prompt, **_kw) -> None:
             span.set_attribute(SpanMeta.LLM_PROVIDER, llm.provider)
         
         # Model info might be in different places
+        # Check default_request_params first as it's more specific
         model = None
-        if hasattr(llm, "model"):
-            model = llm.model
-        elif hasattr(llm, "default_request_params") and hasattr(llm.default_request_params, "model"):
+        if hasattr(llm, "default_request_params") and hasattr(llm.default_request_params, "model"):
             model = llm.default_request_params.model
+        elif hasattr(llm, "model"):
+            model = llm.model
         
         if model:
             span.set_attribute(SpanMeta.LLM_MODEL, model)
