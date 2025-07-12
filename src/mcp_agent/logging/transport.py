@@ -390,7 +390,9 @@ class AsyncEventBus:
             print(f"Error in transport.send_event: {e}")
 
         # Then queue for listeners
-        await self._queue.put(event)
+        # Only queue if the event bus has been started (and _queue exists)
+        if hasattr(self, '_queue') and self._queue is not None:
+            await self._queue.put(event)
 
     def add_listener(self, name: str, listener: EventListener):
         """Add a listener to the event bus."""
