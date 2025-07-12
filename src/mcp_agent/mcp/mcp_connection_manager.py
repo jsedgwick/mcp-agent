@@ -28,6 +28,7 @@ from mcp.client.websocket import websocket_client
 from mcp.types import JSONRPCMessage, ServerCapabilities
 
 from mcp_agent.config import MCPServerSettings
+from mcp_agent.core import instrument
 from mcp_agent.core.context_dependent import ContextDependent
 from mcp_agent.core.exceptions import ServerInitializationError
 from mcp_agent.logging.event_progress import ProgressAction

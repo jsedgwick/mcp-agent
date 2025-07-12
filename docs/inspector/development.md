@@ -253,6 +253,46 @@ tail -f ~/.mcp_traces/*.jsonl.gz | gunzip
 
 ## Development Patterns
 
+### Instrumentation Patterns
+
+The project is migrating from a direct OpenTelemetry integration to a decoupled, hook-based system. All new instrumentation **MUST** use the hook system.
+
+#### The Correct Pattern: Hook-Based Instrumentation
+This is the required pattern for all new features.
+
+1.  **Define the Hook**: If a new hook is needed, add it to the formal contract at `docs/inspector/instrumentation-hooks.md`. This includes its name, signature, and when it's emitted.
+
+2.  **Emit the Hook**: In the core `mcp-agent` code, at the appropriate logical point, emit the event using `instrument._emit()`. The core code should have **no direct OTel calls**.
+
+    ```python
+    # In a core agent or workflow method
+    from mcp_agent.core import instrument
+
+    # ... some logic ...
+    await instrument._emit("my_new_event_name", arg1=value1, arg2=value2)
+    # ... more logic ...
+    ```
+
+3.  **Create a Subscriber**: In `src/mcp_agent/inspector/subscribers.py`, create a subscriber function to listen for the event and translate it into telemetry data. The subscriber is responsible for all interaction with OpenTelemetry.
+
+    ```python
+    # In src/mcp_agent/inspector/subscribers.py
+    from opentelemetry import trace
+
+    async def on_my_new_event(arg1, arg2, **_kw):
+        span = trace.get_current_span()
+        if span and span.is_recording():
+            span.set_attribute("my.custom.attribute.one", arg1)
+            span.set_attribute("my.custom.attribute.two", arg2)
+
+    # In register_all_subscribers()
+    instrument.register("my_new_event_name", on_my_new_event)
+    ```
+
+#### Legacy Pattern (To Be Deprecated)
+
+You will see direct OTel integration, like the `@telemetry.traced()` decorator and manual `tracer.start_as_current_span()` calls, throughout the existing core codebase. **This pattern is deprecated and should not be used for new development.** The roadmap includes tasks to refactor and remove this technical debt.
+
 ### Adding New Span Attributes
 
 ```python

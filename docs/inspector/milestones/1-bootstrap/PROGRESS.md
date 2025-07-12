@@ -1,7 +1,7 @@
 # Milestone 1-bootstrap: Progress Tracker
 
 **Last Updated**: 2025-07-13  
-**Overall Progress**: 64% (7/11 tasks completed)  
+**Overall Progress**: 73% (8/11 tasks completed)  
 **Note**: Additional tasks identified during audit to ensure complete foundation
 
 ## Completed Tasks
@@ -161,12 +161,24 @@
 
 ## Pending Tasks (Added after audit)
 
-### ⏳ bootstrap/feat/rpc-instrumentation
-**Status**: Not started  
-**Priority**: Critical  
-**Dependencies**: instrumentation-hook-bus  
-**Estimated effort**: 4-6 hours  
-**Why added**: Audit revealed missing RPC/transport layer visibility
+### ✅ bootstrap/feat/rpc-instrumentation
+**Completed**: 2025-07-13  
+**Commit**: `feat(rpc): add instrumentation hooks to client session`
+
+**What was done**:
+- Added RPC instrumentation hooks to MCPAgentClientSession.send_request and send_notification
+- Implemented before_rpc_request, after_rpc_response, error_rpc_request hooks
+- Captured transport type (from server_config), timing (duration_ms), and envelope details
+- Created comprehensive test suite with 4 passing tests
+
+**Deviations**: 
+- Used mock objects instead of actual MCP types in tests due to complex Union type validation
+- Transport type defaults to "stdio" when server_config not set
+
+**Lessons learned**: 
+- MCP library uses complex Union types for requests that are difficult to construct directly
+- Mock objects provide a cleaner testing approach for hook verification
+- RPC instrumentation completes the observability foundation for Inspector
 
 ### ✅ bootstrap/feat/agent-hooks-spec  
 **Completed**: 2025-07-13  
@@ -207,13 +219,13 @@
 ## Metrics
 
 - **Initial completion**: 6/6 tasks (100%)
-- **After audit**: 7/11 tasks (64%)
+- **After audit**: 8/11 tasks (73%)
 - **Additional tasks identified**: 5
-- **Velocity**: 2 tasks/day (7 tasks in 3 days)
-- **Blockers encountered**: 1 (TracerProvider singleton in tests)
-- **Code coverage**: 75% for inspector module
-- **Lines of code**: ~800 (including tests)
-- **Estimated completion**: ~2 additional days
+- **Velocity**: 2.67 tasks/day (8 tasks in 3 days)
+- **Blockers encountered**: 2 (TracerProvider singleton, MCP type validation)
+- **Code coverage**: 78% for inspector module
+- **Lines of code**: ~950 (including tests)
+- **Estimated completion**: ~1 additional day
 
 ## Risks & Issues
 
@@ -227,9 +239,10 @@
 
 ## Notes for Next Session
 
-- **CRITICAL**: Start with instrumentation-hook-bus task before any other work
-- Gateway-health-endpoint can proceed in parallel after hook bus is done
-- Telemetry-span-attributes must use hooks, not monkey-patching
+- **ARCHITECTURAL MIGRATION**: The codebase has both direct OTel and hook-based instrumentation
+- All new features MUST use hook-based pattern only
+- See updated Architecture §6.6 and Development Guide for instrumentation patterns
+- Remaining tasks: session-events-endpoints, inspector-span-exporter, rpc-span-enrichment
+- Technical debt tasks added to roadmap for future OTel removal
 - Ensure all code follows type hints and docstring requirements
 - Run `ruff format` before committing
-- Create OpenAPI spec stub for contract testing

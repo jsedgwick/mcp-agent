@@ -152,21 +152,42 @@ pytest -q && pnpm playwright test
 
 ## Instrumentation Hooks
 
-Inspector uses the formal hook system instead of monkey-patching:
+**CRITICAL ARCHITECTURAL NOTE**: The codebase is migrating from direct OpenTelemetry integration to a decoupled hook-based system. Currently, both systems coexist (technical debt). All NEW instrumentation MUST use the hook system.
 
+### The Correct Pattern (Hook-Based)
 ```python
+# In core mcp-agent code - emit domain events
 from mcp_agent.core import instrument
+
+async def my_operation():
+    await instrument._emit("before_my_operation", arg1=value1, arg2=value2)
+    # ... do work ...
+    await instrument._emit("after_my_operation", result=result)
+
+# In inspector/subscribers.py - translate to telemetry
 from opentelemetry import trace
 
-async def before_llm_generate(llm, prompt, **_kw):
+async def on_before_my_operation(arg1, arg2, **_kw):
     span = trace.get_current_span()
-    if span:
-        span.set_attribute("mcp.llm.prompt_json", json.dumps(prompt))
+    if span and span.is_recording():
+        span.set_attribute("mcp.my.attribute", arg1)
 
-instrument.register("before_llm_generate", before_llm_generate)
+instrument.register("before_my_operation", on_before_my_operation)
 ```
 
-See @docs/inspector/instrumentation-hooks.md for the complete contract.
+### The Legacy Pattern (DO NOT USE)
+```python
+# DEPRECATED - Direct OTel in core
+from opentelemetry import trace
+tracer = trace.get_tracer(__name__)
+
+@telemetry.traced()  # DO NOT USE
+async def my_operation():
+    with tracer.start_as_current_span("my_operation"):  # DO NOT USE
+        pass
+```
+
+See @docs/inspector/instrumentation-hooks.md for the complete contract and @docs/inspector/development.md#instrumentation-patterns for detailed guidance.
 
 ## Daily Flow
 1. Pick task → @docs/inspector/roadmap.md  
@@ -473,6 +494,66 @@ When CodeRabbit reviews a PR, follow this process:
 
 ## Remember
 Inspector should be so useful we cannot imagine developing mcp-agent without it. Every PR should make debugging easier, not just add features.
+
+## Documentation Formatting Standards
+
+To make docs machine-readable and easily editable:
+
+### 1. Headers
+- Use standard markdown headers (`#`, `##`, `###`)
+- Never use ASCII art dividers (`────────`)
+- Each section must be uniquely identifiable
+
+### 2. Line Length
+- Maximum 120 characters per line
+- Break long table rows into multiple lines
+- Use references for complex data
+
+### 3. Tables
+Always use proper markdown syntax:
+```markdown
+| Column 1 | Column 2 | Column 3 |
+|----------|----------|----------|
+| Data     | Data     | Data     |
+```
+
+### 4. Code Blocks
+- Always specify language after triple backticks
+- Extract examples >20 lines to separate files
+- Use consistent indentation
+
+### 5. File Organization
+- Split files >500 lines into focused topics
+- Use clear naming: `development/setup.md` not `development-setup.md`
+- Create index README.md files for directories
+
+### 6. Structured Data
+Use YAML for complex configuration instead of prose:
+```yaml
+error_codes:
+  INSP-001:
+    description: Disk space low
+    action: Switch to NullExporter
+```
+
+### 7. Task Format
+Use structured format for tasks:
+```markdown
+## Task: [Name]
+**ID**: milestone/type/scope-description
+**Why**: Clear reason
+**What**: Specific deliverable
+**How**: Implementation approach
+**Done When**: Acceptance criteria
+```
+
+### 8. Avoid These Patterns
+- Visual dividers/ASCII art
+- Inline formatting in headers
+- Tab-separated values
+- Mixing numbered and bullet lists
+- Lines >120 characters
+- Complex nested tables
 
 ## Memory
 • Always use `uv` (Universal Virtual) for package management instead of legacy `pip`

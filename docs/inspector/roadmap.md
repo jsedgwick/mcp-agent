@@ -1,10 +1,19 @@
 # mcp-agent-inspector Implementation Roadmap
 
-**Version**: 2.0 (Conventional Commits Edition)  
-**Updated**: 2025-07-11  
+**Version**: 2.1 (Architectural Migration Edition)  
+**Updated**: 2025-07-13  
 **Audience**: Developers, AI Assistants, Project Managers
 
 > **Note**: This document now uses semantic versioning for milestones and conventional commit-friendly task naming. See [MIGRATION_MAP.md](milestones/MIGRATION_MAP.md) for old→new ID mappings.
+
+## Critical Architectural Context
+
+**The codebase is currently migrating from direct OpenTelemetry integration to a decoupled hook-based instrumentation system.** This creates a temporary state where both systems coexist:
+
+- **Legacy**: Direct OTel calls (`@telemetry.traced`, `tracer.start_as_current_span`) throughout core
+- **New**: Hook-based system (`instrument._emit`) with Inspector subscribers
+
+**All new features MUST use the hook-based pattern.** See [Architecture §6.6](architecture.md#66-architectural-migration-from-direct-otel-to-hook-based) and [Development Guide](development.md#instrumentation-patterns) for details.
 
 ## Why this revision?
 • Internal developers run every example in examples/ at least daily.
@@ -402,6 +411,30 @@ No milestones pushed back: tasks pulled into 2-observe are low-effort (~2–3 de
   - E2E tests (Playwright) validate critical paths
   - Performance tests ensure <1.5s for 50k spans
   - All tests must complete in <90s total
+
+## Technical Debt: OTel Migration Tasks
+
+These tasks track the migration from direct OpenTelemetry integration to the hook-based system. They should be prioritized alongside feature development to prevent accumulating more technical debt.
+
+### Phase 1: Core Agent Migration (Target: During 3-understand)
+- `migration/refactor/agent-remove-otel`: Remove direct OTel from Agent class, use hooks only
+- `migration/refactor/workflow-remove-otel`: Remove @telemetry.traced from Workflow classes
+- `migration/refactor/executor-remove-otel`: Replace executor's @telemetry.traced with hooks
+
+### Phase 2: LLM Provider Migration (Target: During 4-visualize)
+- `migration/refactor/llm-providers-remove-otel`: Remove direct span creation from all LLM providers
+- `migration/refactor/mcp-client-remove-otel`: Remove OTel from MCPAgentClientSession (already has hooks)
+
+### Phase 3: Context Decoupling (Target: During 5-interact)
+- `migration/refactor/context-remove-tracer`: Remove tracer instance from Context object
+- `migration/refactor/telemetry-module-deprecate`: Mark @telemetry.traced as deprecated
+- `migration/feat/otel-optional-dependency`: Make OpenTelemetry an optional dependency
+
+### Migration Guidelines
+1. Each refactor task should maintain backward compatibility
+2. Hook emission must happen BEFORE removing OTel calls
+3. Tests must verify equivalent telemetry data is captured
+4. Performance must not degrade (target: <2µs per hook)
 
 ## Future Work (Beyond 6-production)
 

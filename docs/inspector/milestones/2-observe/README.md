@@ -8,6 +8,8 @@
 
 The observe milestone delivers immediate debugging value by making mcp-agent workflows visible. Developers can see sessions, browse traces, inspect state, and understand why workflows pause.
 
+**Architectural Migration Note**: This milestone must implement all new features using the hook-based instrumentation pattern. Any new telemetry collection should use `instrument._emit()` and Inspector subscribers, NOT direct OpenTelemetry calls. The goal is to enrich existing spans created by legacy code while building new features the right way.
+
 ## Success Criteria
 
 - All workflow types (asyncio/Temporal) appear in unified session list

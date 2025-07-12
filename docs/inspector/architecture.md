@@ -249,6 +249,38 @@ class InMemoryWorkflowRegistry:
 
 This same chain applies to any future signal names.
 
+### 6.6. Architectural Migration: From Direct OTel to Hook-Based
+
+**Important Note**: The codebase is currently in transition between two instrumentation approaches:
+
+#### Legacy System (Being Deprecated)
+The existing mcp-agent core contains extensive direct OpenTelemetry integration:
+- `Context` objects hold tracer instances
+- `@telemetry.traced()` decorators throughout the codebase
+- Manual `tracer.start_as_current_span()` calls in core logic
+- Direct coupling between core mcp-agent and OpenTelemetry
+
+#### New System (Hook-Based)
+The Inspector introduces a decoupled approach:
+- Core code emits domain events via `instrument._emit()`
+- Inspector subscribers translate events to OTel spans/attributes
+- Zero OpenTelemetry dependency in core mcp-agent (future goal)
+- Clean separation of concerns
+
+#### Current State
+Both systems are active simultaneously, which creates some redundancy:
+- Core methods create their own spans AND emit hooks
+- Inspector subscribers enrich the same spans created by core
+- This is architectural technical debt that will be addressed
+
+#### Migration Strategy
+1. **New features**: Must use ONLY the hook-based pattern
+2. **Existing code**: Will be gradually refactored to remove direct OTel
+3. **Inspector**: Enriches existing spans until migration complete
+4. **Future state**: Core mcp-agent will have zero OTel imports
+
+See [Development Guide](development.md#instrumentation-patterns) for the required patterns for new development.
+
 ## 7. Performance Guidelines
 
 The Inspector is designed to handle production workloads with minimal overhead.

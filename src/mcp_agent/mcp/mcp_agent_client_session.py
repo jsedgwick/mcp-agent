@@ -4,6 +4,7 @@ It adds logging and supports sampling requests.
 """
 
 from datetime import timedelta
+import time
 from typing import Any, Callable, Optional, TYPE_CHECKING
 from opentelemetry import trace
 from opentelemetry.propagate import inject
@@ -50,6 +51,7 @@ from mcp.types import (
 )
 
 from mcp_agent.config import MCPServerSettings
+from mcp_agent.core import instrument
 from mcp_agent.core.context_dependent import ContextDependent
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.tracing.semconv import (
@@ -202,6 +204,25 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                         str(request_read_timeout_seconds),
                     )
 
+            # Determine transport type from server config
+            transport = "stdio"  # default
+            if hasattr(self, "server_config") and self.server_config:
+                transport = self.server_config.transport
+            
+            # Build RPC envelope for hooks
+            envelope = {
+                "jsonrpc": "2.0",
+                "method": request.root.method,
+                "params": request.root.params.model_dump() if request.root.params else None,
+                "id": request.root.id
+            }
+            
+            # Emit before_rpc_request hook
+            if instrument._hooks.get("before_rpc_request"):
+                await instrument._emit("before_rpc_request", envelope=envelope, transport=transport)
+            
+            start_time = time.time()
+            
             try:
                 result = await super().send_request(
                     request,
@@ -210,8 +231,24 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                     metadata,
                     progress_callback,
                 )
+                
+                duration_ms = (time.time() - start_time) * 1000
                 res_data = result.model_dump()
                 logger.debug("send_request: response=", data=res_data)
+
+                # Build response envelope for hooks
+                response_envelope = {
+                    "jsonrpc": "2.0",
+                    "result": res_data,
+                    "id": request.root.id
+                }
+                
+                # Emit after_rpc_response hook
+                if instrument._hooks.get("after_rpc_response"):
+                    await instrument._emit("after_rpc_response", 
+                                         envelope=response_envelope, 
+                                         transport=transport,
+                                         duration_ms=duration_ms)
 
                 if self.context.tracing_enabled:
                     record_attributes(span, res_data, "result")
@@ -219,6 +256,14 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 return result
             except Exception as e:
                 logger.error(f"send_request failed: {e}")
+                
+                # Emit error_rpc_request hook
+                if instrument._hooks.get("error_rpc_request"):
+                    await instrument._emit("error_rpc_request",
+                                         envelope=envelope,
+                                         transport=transport, 
+                                         exc=e)
+                
                 raise
 
     async def send_notification(
@@ -259,10 +304,48 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                         params.meta.tracestate = trace_headers["tracestate"]
                     notification.root.params = params
 
+            # Determine transport type from server config
+            transport = "stdio"  # default
+            if hasattr(self, "server_config") and self.server_config:
+                transport = self.server_config.transport
+            
+            # Build RPC envelope for hooks (notifications don't have id)
+            envelope = {
+                "jsonrpc": "2.0",
+                "method": notification.root.method,
+                "params": notification.root.params.model_dump() if notification.root.params else None
+            }
+            
+            # Emit before_rpc_request hook
+            if instrument._hooks.get("before_rpc_request"):
+                await instrument._emit("before_rpc_request", envelope=envelope, transport=transport)
+            
+            start_time = time.time()
+            
             try:
-                return await super().send_notification(notification, related_request_id)
+                result = await super().send_notification(notification, related_request_id)
+                
+                duration_ms = (time.time() - start_time) * 1000
+                
+                # For notifications, there's no response body, but we emit the hook anyway
+                # Emit after_rpc_response hook
+                if instrument._hooks.get("after_rpc_response"):
+                    await instrument._emit("after_rpc_response", 
+                                         envelope={"jsonrpc": "2.0"},  # minimal response for notification
+                                         transport=transport,
+                                         duration_ms=duration_ms)
+                
+                return result
             except Exception as e:
                 logger.error("send_notification failed", data=e)
+                
+                # Emit error_rpc_request hook
+                if instrument._hooks.get("error_rpc_request"):
+                    await instrument._emit("error_rpc_request",
+                                         envelope=envelope,
+                                         transport=transport, 
+                                         exc=e)
+                
                 raise
 
     async def _send_response(

@@ -8,6 +8,8 @@
 
 Bootstrap milestone establishes the foundational structure for mcp-agent-inspector with zero external dependencies. After completion, developers can import and mount the inspector, though functionality will be minimal.
 
+**Important Architectural Context**: The mcp-agent codebase currently has direct OpenTelemetry integration throughout. This milestone introduces a new hook-based instrumentation system that will eventually replace the direct OTel calls. During the transition, both systems will coexist. All new instrumentation MUST use the hook-based pattern.
+
 ## Success Criteria
 
 - Instrumentation hook bus implemented in mcp-agent core

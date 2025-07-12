@@ -126,6 +126,7 @@ v1.1  (2025-07-13) added agent hooks
 7  Subscriber best-practice
 ────────────────────────────────────────────────────────────────────────
 
+```python
 # inspector/subscribers/llm_attrs.py
 from mcp_agent.core import instrument
 from opentelemetry import trace
@@ -137,7 +138,9 @@ async def _before_llm_generate(llm, prompt, **_kw):
         span.set_attribute("mcp.llm.prompt_json", json.dumps(prompt))
 
 instrument.register("before_llm_generate", _before_llm_generate)
-Guidelines
+```
+
+### Guidelines
 
 Never mutate positional objects (prompt, args, etc.).
 Do not assume sync context – always support being awaited.
