@@ -6,9 +6,9 @@ import atexit
 import os
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, List, Dict
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from starlette.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 
@@ -16,6 +16,8 @@ if TYPE_CHECKING:  # pragma: no cover
     import uvicorn  # noqa: F401
 
 from .version import __version__
+from .sessions import list_sessions, SessionMeta
+from .events import create_event_stream_response
 
 # Create the router with the inspector prefix
 _router = APIRouter(prefix="/_inspector")
@@ -25,6 +27,35 @@ _router = APIRouter(prefix="/_inspector")
 async def health() -> JSONResponse:
     """Health check endpoint."""
     return JSONResponse({"name": "mcp-agent-inspector", "version": __version__})
+
+
+@_router.get("/sessions")
+async def get_sessions() -> Dict[str, List[Dict[str, Any]]]:
+    """List all sessions from trace files.
+    
+    Returns a list of session metadata objects sorted by start time (newest first).
+    Sessions include both completed sessions from trace files and active sessions
+    from the workflow registry (when available).
+    """
+    sessions = await list_sessions()
+    return {
+        "sessions": [session.to_dict() for session in sessions]
+    }
+
+
+@_router.get("/events")
+async def event_stream(request: Request):
+    """Server-Sent Events stream for real-time updates.
+    
+    Provides real-time events including:
+    - SessionStarted: When a new session begins
+    - SessionFinished: When a session completes
+    - WaitingOnSignal: When a workflow pauses for input
+    - Heartbeat: Periodic updates with session metrics
+    
+    The stream uses SSE format with automatic reconnection support.
+    """
+    return await create_event_stream_response(request)
 
 
 def _run_local_uvicorn(app: FastAPI) -> None:

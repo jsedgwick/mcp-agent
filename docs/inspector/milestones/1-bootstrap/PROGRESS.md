@@ -1,7 +1,7 @@
 # Milestone 1-bootstrap: Progress Tracker
 
 **Last Updated**: 2025-07-13  
-**Overall Progress**: 73% (8/11 tasks completed)  
+**Overall Progress**: 82% (9/11 tasks completed)  
 **Note**: Additional tasks identified during audit to ensure complete foundation
 
 ## Completed Tasks
@@ -195,12 +195,29 @@
 - Important to keep specification in sync with implementation
 - The hook was already being used by subscribers but wasn't formally documented
 
-### ⏳ bootstrap/feat/session-events-endpoints
-**Status**: Not started  
-**Priority**: High  
-**Dependencies**: gateway-health-endpoint  
-**Estimated effort**: 4-6 hours  
-**Why added**: Required for milestone 2 to show sessions and receive events
+### ✅ bootstrap/feat/session-events-endpoints
+**Completed**: 2025-07-13  
+**Commit**: `feat(sessions): implement session listing and SSE event streaming`  
+
+**What was done**:
+- Created sessions.py with logic to scan ~/.mcp_traces/ for trace files
+- Implemented metadata extraction from gzipped JSONL trace files
+- Created events.py with Server-Sent Events (SSE) streaming infrastructure
+- Added EventStream class for managing connected clients
+- Implemented common event types: SessionStarted, SessionFinished, WaitingOnSignal, Heartbeat
+- Updated gateway.py to add /sessions and /events endpoints
+- OpenAPI spec already had the endpoints defined (no updates needed)
+- Created comprehensive test suite with 9 tests covering all functionality
+- Added demo script to showcase the new features
+
+**Deviations from plan**:
+- Used `removesuffix('.jsonl.gz')` instead of Path.stem for proper session ID extraction
+- TestClient doesn't support SSE streaming, so SSE tests focus on the event publishing mechanism
+
+**Lessons learned**:
+- Environment variable MCP_TRACES_DIR allows easy testing with temporary directories
+- SSE endpoints require special handling in tests due to their streaming nature
+- Gzipped JSONL format works well for trace storage and can be parsed line-by-line
 
 ### ⏳ bootstrap/feat/inspector-span-exporter
 **Status**: Not started  
@@ -219,13 +236,14 @@
 ## Metrics
 
 - **Initial completion**: 6/6 tasks (100%)
-- **After audit**: 8/11 tasks (73%)
+- **After audit**: 9/11 tasks (82%)
 - **Additional tasks identified**: 5
-- **Velocity**: 2.67 tasks/day (8 tasks in 3 days)
+- **Velocity**: 3 tasks/day (9 tasks in 3 days)
 - **Blockers encountered**: 2 (TracerProvider singleton, MCP type validation)
 - **Code coverage**: 78% for inspector module
-- **Lines of code**: ~950 (including tests)
-- **Estimated completion**: ~1 additional day
+- **Lines of code**: ~1400 (including tests)
+- **Tests written**: 65 total (all passing)
+- **Estimated completion**: <1 day for remaining 2 tasks
 
 ## Risks & Issues
 
