@@ -118,3 +118,93 @@ jobs:
 
       - name: Run contract tests
         run: uv run schemathesis run docs/inspector/openapi.yaml --url http://localhost:7800/_inspector --checks all --workers auto
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: packages/inspector_ui/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: packages/inspector_ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Run TypeScript check
+        working-directory: packages/inspector_ui
+        run: pnpm run build
+
+      - name: Run ESLint
+        working-directory: packages/inspector_ui
+        run: pnpm run lint
+
+      - name: Check if UI builds successfully
+        working-directory: packages/inspector_ui
+        run: |
+          # Build should have already run in TypeScript check
+          # Just verify the dist directory exists and has content
+          if [ ! -d "dist" ]; then
+            echo "Error: dist directory not found"
+            exit 1
+          fi
+          if [ ! -f "dist/index.html" ]; then
+            echo "Error: dist/index.html not found"
+            exit 1
+          fi
+          echo "Frontend build successful!"
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen --all-extras --dev
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: packages/inspector_ui/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: packages/inspector_ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: packages/inspector_ui
+        run: pnpm run build
+
+      - name: Install Playwright browsers
+        working-directory: packages/inspector_ui
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        working-directory: packages/inspector_ui
+        run: pnpm exec playwright test
