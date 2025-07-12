@@ -120,25 +120,55 @@ src/mcp_agent/workflows/llm/augmented_llm_ollama.py
 
 ### bootstrap/feat/telemetry-span-attributes
 **Priority**: Medium  
-**Description**: Add first span enrichment using hook system
+**Description**: Add core span enrichment infrastructure
+**Dependencies**: instrumentation-hook-bus, llm-generate-hooks
+
+**Note**: This is a critical dependency for 2-observe milestone. Consider completing before moving to 2-observe.
 
 **Acceptance Criteria**:
-- SpanMeta class defines attribute constants
-- Hook subscriber adds `mcp.agent.class` attribute to spans
-- Attribute visible in trace output
-- No monkey-patching used
+- Core infrastructure for span attribute enrichment
+- SpanMeta class with attribute constants
+- Base decorator `@dump_state_to_span()` implementation
+- Size limit enforcement (30KB) with truncation
+- Basic hook subscribers for agent and workflow spans
+
+**Sub-tasks** (implement incrementally):
+1. **telemetry-span-core**: Base infrastructure, SpanMeta class, size limits
+2. **telemetry-span-decorator**: `@dump_state_to_span()` decorator implementation
+3. **telemetry-span-agent**: Agent-specific attributes (`mcp.agent.*`)
+4. **telemetry-span-workflow**: Workflow attributes (`mcp.workflow.*`)
+5. **telemetry-span-tool**: Tool call attributes (`mcp.tool.*`)
 
 **Implementation Notes**:
 ```python
 # src/mcp_agent/inspector/span_meta.py
 class SpanMeta:
+    # Agent attributes
     AGENT_CLASS = "mcp.agent.class"
-    # Future attributes defined here
+    AGENT_NAME = "mcp.agent.name"
+    
+    # Workflow attributes
+    WORKFLOW_TYPE = "mcp.workflow.type"
+    WORKFLOW_INPUT_JSON = "mcp.workflow.input_json"
+    WORKFLOW_OUTPUT_JSON = "mcp.workflow.output_json"
+    
+    # Tool attributes
+    TOOL_NAME = "mcp.tool.name"
+    TOOL_INPUT_JSON = "mcp.tool.input_json"
+    TOOL_OUTPUT_JSON = "mcp.tool.output_json"
+    
+    # Size limits
+    MAX_ATTRIBUTE_SIZE = 30 * 1024  # 30KB
+
+# src/mcp_agent/inspector/decorators.py
+def dump_state_to_span(description=None):
+    """Decorator to capture function return value as span attribute"""
+    # Implementation here
 
 # src/mcp_agent/inspector/subscribers.py
 from mcp_agent.core import instrument
 
-async def before_agent_call(agent, **_kw):
+async def before_workflow_run(workflow, context, **_kw):
     span = trace.get_current_span()
     if span:
         span.set_attribute(SpanMeta.AGENT_CLASS, agent.__class__.__name__)

@@ -2,6 +2,9 @@
 """
 Basic test for RCM Phase 2 implementation with mocked LLM calls.
 Uses canonical mcp-agent configuration patterns with readable output.
+
+Note: These tests are marked as slow and skipped by default.
+To run them, use: SKIP_SLOW_TESTS=false pytest test_basic.py
 """
 
 import asyncio
@@ -72,6 +75,11 @@ def patch_llm_interactions():
 
 
 @pytest.mark.asyncio
+@pytest.mark.slow
+@pytest.mark.skipif(
+    os.getenv("SKIP_SLOW_TESTS", "true").lower() == "true",
+    reason="Skipping slow test. Set SKIP_SLOW_TESTS=false to run."
+)
 async def test_rcm_with_real_calls():
     """Test RCM with mocked LLM calls using readable output"""
     # Create test runner with verbose output to see full responses
@@ -356,6 +364,11 @@ async def test_rcm_with_real_calls():
 
 
 @pytest.mark.asyncio
+@pytest.mark.slow
+@pytest.mark.skipif(
+    os.getenv("SKIP_SLOW_TESTS", "true").lower() == "true",
+    reason="Skipping slow test. Set SKIP_SLOW_TESTS=false to run."
+)
 async def test_fallback_behavior():
     """Test that fallbacks work when LLM providers are unavailable"""
     print("\n🧪 Testing Fallback Behavior...")

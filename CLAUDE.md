@@ -22,12 +22,75 @@ An embedded, zero-dependency debugging and observability tool for mcp-agent. It 
 
 ## Code Quality Standards
 **MANDATORY for every PR:**
-- **Type hints**: All functions MUST have complete type annotations (params + return)
-- **Unit tests**: Write tests FIRST, aim for >90% coverage
-- **Formatting**: Run `ruff format` and `ruff check --fix` before committing
-- **Docstrings**: Every public function needs docstring with Examples section
-- **Type checking**: `mypy --strict` must pass with zero errors
-- **Performance**: Profile first, optimize second (target <1ms span overhead)
+
+### Type Hints
+All functions MUST have complete type annotations (params + return).
+```bash
+# Bad
+def process_data(data):
+    return data.upper()
+
+# Good
+def process_data(data: str) -> str:
+    return data.upper()
+```
+
+### Unit Tests  
+Write tests FIRST (TDD), aim for >90% coverage.
+```bash
+# Check coverage
+make coverage
+
+# Generate HTML coverage report
+make coverage-report
+```
+
+### Code Formatting & Linting
+Run before EVERY commit:
+```bash
+# Format code (runs ruff format)
+make format
+
+# Fix linting issues (runs ruff check --fix)
+make lint
+
+# Or do both in one command
+uv run scripts/lint.py --fix
+```
+
+### Docstrings
+Every public function needs docstring with Examples section.
+```python
+def get_session(session_id: str) -> Optional[Session]:
+    """Retrieve session by ID.
+    
+    Args:
+        session_id: Unique session identifier
+        
+    Returns:
+        Session object if found, None otherwise
+        
+    Examples:
+        >>> session = get_session("test-123")
+        >>> assert session is None or isinstance(session, Session)
+    """
+```
+
+### Type Checking
+**Note**: mypy is aspirational - not currently enforced in CI but recommended for new code.
+```bash
+# If you want to use mypy locally (not required):
+# uv pip install mypy
+# mypy --strict mcp_agent/inspector/
+```
+The project currently relies on ruff for basic type checking via type annotations.
+
+### Performance
+Profile first, optimize second (target <5µs hook overhead per span).
+```bash
+# Use pytest-benchmark for performance tests
+# See tests/perf/ for examples
+```
 
 ## Critical Documentation
 **IMPORTANT**: Before implementing any inspector feature, you MUST read the relevant docs in docs/inspector/:
@@ -56,16 +119,11 @@ An embedded, zero-dependency debugging and observability tool for mcp-agent. It 
 # Fast path (requires uv - https://github.com/astral-sh/uv)
 uv pip install "mcp-agent[inspector]"
 
-# Standard Python tooling
-python -m pip install "mcp-agent[inspector]"
-
 # Or in development mode
 git clone https://github.com/your-org/mcp-agent-inspector
 cd mcp-agent-inspector
-# With uv
+# Install in dev mode
 uv pip install -e ".[dev]"
-# With standard pip
-python -m pip install -e ".[dev]"
 
 # Frontend setup (one-time)
 cd packages/inspector_ui

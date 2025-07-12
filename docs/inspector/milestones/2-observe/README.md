@@ -18,6 +18,62 @@ The observe milestone delivers immediate debugging value by making mcp-agent wor
 
 ## Tasks
 
+### observe/fix/async-event-bus-init
+**Priority**: Critical  
+**Description**: Fix AsyncEventBus initialization for proper event streaming
+
+**Acceptance Criteria**:
+- AsyncEventBus properly initializes `_queue` attribute in all contexts
+- No more `AttributeError: 'AsyncEventBus' object has no attribute '_queue'` in tests
+- Verified working in both test and production environments
+- Compatible with future Temporal executor requirements
+
+**Implementation Notes**:
+- Root cause is in `mcp_agent.logging.transport`
+- May require ensuring proper context initialization
+- Critical for SSE streaming to work correctly
+- Add integration test to prevent regression
+
+---
+
+### observe/test/performance-baseline
+**Priority**: High  
+**Description**: Establish realistic performance benchmarks
+
+**Acceptance Criteria**:
+- Measure actual hook overhead (target: <2µs per emit)
+- Measure span processing time (target: <5µs per span)
+- Measure trace file write performance
+- Create performance regression test suite
+- Document findings in architecture.md
+
+**Implementation Notes**:
+```python
+# Use pytest-benchmark
+def test_hook_overhead(benchmark):
+    result = benchmark(instrument._emit, "test_hook")
+    assert result < 2000  # nanoseconds
+```
+
+---
+
+### observe/docs/hook-integration
+**Priority**: Medium  
+**Description**: Document hook-to-telemetry mapping
+
+**Acceptance Criteria**:
+- Complete "Hook" column in all telemetry-spec.md tables
+- Document which hooks are responsible for each attribute
+- Add examples of hook subscriber implementations
+- Cross-reference with instrumentation-hooks.md
+
+**Implementation Notes**:
+- Some hooks may not exist yet (mark as "future")
+- Include both implemented and planned hooks
+- Make machine-parseable for automated validation
+
+---
+
 ### observe/feat/sessions-unified-list
 **Priority**: High  
 **Description**: Unified endpoint for all active sessions
@@ -186,20 +242,38 @@ test('inspector shows workflow state', async ({ page }) => {
 
 ```mermaid
 graph TD
+    FIX[async-event-bus-init] --> C[events-sse-stream]
+    PERF[performance-baseline] --> D[telemetry-full-enrichment]
+    DOCS[hook-integration] --> D
     A[sessions-unified-list] --> G[ui-session-navigator]
     B[trace-file-exporter] --> G
-    C[events-sse-stream] --> G
-    D[telemetry-full-enrichment] --> B
+    C --> G
+    D --> B
     E[sessions-inbound-mcp] --> A
     F[workflow-pause-signals] --> C
     G --> H[api-reference-stubs]
     G --> I[e2e-playwright-suite]
 ```
 
+## Contingency Planning
+
+Based on 1-bootstrap implementation experience, we allocate a 20% buffer for:
+- Bug fixes discovered during implementation
+- Performance optimizations needed to meet targets
+- Additional test coverage for edge cases
+- Documentation updates based on actual behavior
+
+Common issues to watch for:
+- Variable reassignment bugs (like the LLM prompt issue)
+- Type checking conflicts with existing code
+- AsyncEventBus initialization in different contexts
+- Import path confusion between similar classes
+
 ## Definition of Done
 
 - [ ] All tasks completed and tested
 - [ ] Dogfood checklist verified
-- [ ] No performance regressions
+- [ ] No performance regressions (<2µs hook overhead confirmed)
 - [ ] Documentation updated
+- [ ] AsyncEventBus issues resolved
 - [ ] Ready for understand milestone

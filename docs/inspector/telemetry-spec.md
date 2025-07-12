@@ -35,26 +35,31 @@ These attributes provide the core data for the Inspector UI. They are populated 
 
 ### 3.1. Workflow Attributes
 
-*   `mcp.workflow.type` (string): The type of workflow. **Required** on `workflow.run` spans. [Hook: `before_workflow_run`]
-    *   *Examples*: `orchestrator`, `router`, `parallel`, `evaluator_optimizer`, `swarm`
-*   `mcp.workflow.input_json` (string): The initial input arguments for the workflow, serialized as JSON. [Hook: `before_workflow_run`]
-*   `mcp.workflow.output_json` (string): The final result of the workflow, serialized as JSON. [Hook: `after_workflow_run`]
+| Attribute | Type | Description | Hook |
+|-----------|------|-------------|------|
+| `mcp.workflow.type` | string | The type of workflow. **Required** on `workflow.run` spans. Examples: `orchestrator`, `router`, `parallel`, `evaluator_optimizer`, `swarm` | `before_workflow_run` |
+| `mcp.workflow.input_json` | string | The initial input arguments for the workflow, serialized as JSON. | `before_workflow_run` |
+| `mcp.workflow.output_json` | string | The final result of the workflow, serialized as JSON. | `after_workflow_run` |
 
 ### 3.2. Agent and Tool Attributes
 
-*   `mcp.agent.name` (string): The name of the `Agent` being called. Added to `agent.call` spans.
-*   `mcp.tool.name` (string): The name of the tool being executed (e.g., `fetch-fetch`). Added to `tool.call` spans. [Hook: `before_tool_call`]
-*   `mcp.tool.input_json` (string): The arguments passed to the tool, serialized as JSON. [Hook: `before_tool_call`]
-*   `mcp.tool.output_json` (string): The result returned by the tool, serialized as JSON. [Hook: `after_tool_call`]
-*   `mcp.tool.structured_output_json` (string): MCP §6.2 structured data from tool response. Added by `agent.call_tool()`. Shown in "Structured Data" tab. [Hook: `after_tool_call`]
-*   `mcp.model.preferences_json` (string): MCP §4.4 model preferences for selection. Added by `llm_selector.py`. Shown in Model Viewer.
+| Attribute | Type | Description | Hook |
+|-----------|------|-------------|------|
+| `mcp.agent.name` | string | The name of the `Agent` being called. Added to `agent.call` spans. | `before_agent_call` (future) |
+| `mcp.tool.name` | string | The name of the tool being executed (e.g., `fetch-fetch`). Added to `tool.call` spans. | `before_tool_call` |
+| `mcp.tool.input_json` | string | The arguments passed to the tool, serialized as JSON. | `before_tool_call` |
+| `mcp.tool.output_json` | string | The result returned by the tool, serialized as JSON. | `after_tool_call` |
+| `mcp.tool.structured_output_json` | string | MCP §6.2 structured data from tool response. Added by `agent.call_tool()`. Shown in "Structured Data" tab. | `after_tool_call` |
+| `mcp.model.preferences_json` | string | MCP §4.4 model preferences for selection. Added by `llm_selector.py`. Shown in Model Viewer. | `before_model_selection` (future) |
 
 ### 3.3. LLM Attributes
 
-*   `mcp.llm.prompt_json` (string): The full prompt (including messages, system prompt, etc.) sent to the LLM, serialized as JSON. [Hook: `before_llm_generate`]
-*   `mcp.llm.response_json` (string): The full response received from the LLM, serialized as JSON. [Hook: `after_llm_generate`]
-*   `mcp.llm.provider` (string): The name of the LLM provider (e.g., `openai`, `anthropic`). [Hook: `before_llm_generate`]
-*   `mcp.llm.model` (string): The specific model name (e.g., `gpt-4o`, `claude-3-opus-20240229`). [Hook: `before_llm_generate`]
+| Attribute | Type | Description | Hook |
+|-----------|------|-------------|------|
+| `mcp.llm.prompt_json` | string | The full prompt (including messages, system prompt, etc.) sent to the LLM, serialized as JSON. | `before_llm_generate` |
+| `mcp.llm.response_json` | string | The full response received from the LLM, serialized as JSON. | `after_llm_generate` |
+| `mcp.llm.provider` | string | The name of the LLM provider (e.g., `openai`, `anthropic`). | `before_llm_generate` |
+| `mcp.llm.model` | string | The specific model name (e.g., `gpt-4o`, `claude-3-opus-20240229`). | `before_llm_generate` |
 
 **Multi-part messages**  
 The JSON stored in `mcp.llm.prompt_json` and `mcp.llm.response_json` is **exactly** the

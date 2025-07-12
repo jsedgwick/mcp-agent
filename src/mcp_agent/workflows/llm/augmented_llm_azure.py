@@ -38,6 +38,7 @@ from mcp.types import (
 )
 
 from mcp_agent.config import AzureSettings
+from mcp_agent.core import instrument
 from mcp_agent.executor.workflow_task import workflow_task
 from mcp_agent.tracing.semconv import (
     GEN_AI_AGENT_NAME,
@@ -130,157 +131,183 @@ class AzureAugmentedLLM(AugmentedLLM[MessageParam, ResponseMessage]):
         The default implementation uses Azure OpenAI 4o-mini as the LLM.
         Override this method to use a different LLM.
         """
-        tracer = get_tracer(self.context)
-        with tracer.start_as_current_span(f"llm_azure.{self.name}.generate") as span:
-            span.set_attribute(GEN_AI_AGENT_NAME, self.agent.name)
-            self._annotate_span_for_generation_message(span, message)
+        # Emit before_llm_generate hook
+        original_prompt = message  # Save the original prompt before it gets overwritten
+        await instrument._emit(
+            "before_llm_generate",
+            llm=self,
+            prompt=message
+        )
+        
+        try:
+            tracer = get_tracer(self.context)
+            with tracer.start_as_current_span(f"llm_azure.{self.name}.generate") as span:
+                span.set_attribute(GEN_AI_AGENT_NAME, self.agent.name)
+                self._annotate_span_for_generation_message(span, message)
 
-            messages: list[MessageParam] = []
-            responses: list[ResponseMessage] = []
+                messages: list[MessageParam] = []
+                responses: list[ResponseMessage] = []
 
-            params = self.get_request_params(request_params)
+                params = self.get_request_params(request_params)
 
-            if self.context.tracing_enabled:
-                AugmentedLLM.annotate_span_with_request_params(span, params)
+                if self.context.tracing_enabled:
+                    AugmentedLLM.annotate_span_with_request_params(span, params)
 
-            if params.use_history:
-                span.set_attribute("use_history", params.use_history)
-                messages.extend(self.history.get())
+                if params.use_history:
+                    span.set_attribute("use_history", params.use_history)
+                    messages.extend(self.history.get())
 
-            system_prompt = self.instruction or params.systemPrompt
+                system_prompt = self.instruction or params.systemPrompt
 
-            if system_prompt and len(messages) == 0:
-                messages.append(SystemMessage(content=system_prompt))
-                span.set_attribute("system_prompt", system_prompt)
+                if system_prompt and len(messages) == 0:
+                    messages.append(SystemMessage(content=system_prompt))
+                    span.set_attribute("system_prompt", system_prompt)
 
-            messages.extend(AzureConverter.convert_mixed_messages_to_azure(message))
+                messages.extend(AzureConverter.convert_mixed_messages_to_azure(message))
 
-            response = await self.agent.list_tools()
+                response = await self.agent.list_tools()
 
-            tools: list[ChatCompletionsToolDefinition] = [
-                ChatCompletionsToolDefinition(
-                    function=FunctionDefinition(
-                        name=tool.name,
-                        description=tool.description,
-                        parameters=tool.inputSchema,
+                tools: list[ChatCompletionsToolDefinition] = [
+                    ChatCompletionsToolDefinition(
+                        function=FunctionDefinition(
+                            name=tool.name,
+                            description=tool.description,
+                            parameters=tool.inputSchema,
+                        )
                     )
-                )
-                for tool in response.tools
-            ]
+                    for tool in response.tools
+                ]
 
-            span.set_attribute(
-                "available_tools",
-                [t.function.name for t in tools],
-            )
-
-            model = await self.select_model(params)
-            if model:
-                span.set_attribute(GEN_AI_REQUEST_MODEL, model)
-
-            total_input_tokens = 0
-            total_output_tokens = 0
-            finish_reasons = []
-
-            for i in range(params.max_iterations):
-                arguments = {
-                    "messages": messages,
-                    "temperature": params.temperature,
-                    "model": model,
-                    "max_tokens": params.maxTokens,
-                    "stop": params.stopSequences,
-                    "tools": tools,
-                }
-
-                if params.metadata:
-                    arguments = {**arguments, **params.metadata}
-
-                self.logger.debug(f"{arguments}")
-                self._log_chat_progress(chat_turn=(len(messages) + 1) // 2, model=model)
-
-                request = RequestCompletionRequest(
-                    config=self.context.config.azure,
-                    payload=arguments,
-                )
-                self._annotate_span_for_completion_request(span, request, i)
-
-                response = await self.executor.execute(
-                    AzureCompletionTasks.request_completion_task,
-                    request,
+                span.set_attribute(
+                    "available_tools",
+                    [t.function.name for t in tools],
                 )
 
-                if isinstance(response, BaseException):
-                    self.logger.error(f"Error: {response}")
-                    span.record_exception(response)
-                    span.set_status(trace.Status(trace.StatusCode.ERROR))
-                    break
+                model = await self.select_model(params)
+                if model:
+                    span.set_attribute(GEN_AI_REQUEST_MODEL, model)
 
-                self.logger.debug(f"{model} response:", data=response)
+                total_input_tokens = 0
+                total_output_tokens = 0
+                finish_reasons = []
 
-                self._annotate_span_for_completion_response(span, response, i)
+                for i in range(params.max_iterations):
+                    arguments = {
+                        "messages": messages,
+                        "temperature": params.temperature,
+                        "model": model,
+                        "max_tokens": params.maxTokens,
+                        "stop": params.stopSequences,
+                        "tools": tools,
+                    }
 
-                total_input_tokens += response.usage["prompt_tokens"]
-                total_output_tokens += response.usage["completion_tokens"]
-                finish_reasons.append(response.choices[0].finish_reason)
+                    if params.metadata:
+                        arguments = {**arguments, **params.metadata}
 
-                message = response.choices[0].message
-                responses.append(message)
-                assistant_message = self.convert_message_to_message_param(message)
-                messages.append(assistant_message)
+                    self.logger.debug(f"{arguments}")
+                    self._log_chat_progress(chat_turn=(len(messages) + 1) // 2, model=model)
 
-                if (
-                    response.choices[0].finish_reason
-                    == CompletionsFinishReason.TOOL_CALLS
-                ):
+                    request = RequestCompletionRequest(
+                        config=self.context.config.azure,
+                        payload=arguments,
+                    )
+                    self._annotate_span_for_completion_request(span, request, i)
+
+                    response = await self.executor.execute(
+                        AzureCompletionTasks.request_completion_task,
+                        request,
+                    )
+
+                    if isinstance(response, BaseException):
+                        self.logger.error(f"Error: {response}")
+                        span.record_exception(response)
+                        span.set_status(trace.Status(trace.StatusCode.ERROR))
+                        break
+
+                    self.logger.debug(f"{model} response:", data=response)
+
+                    self._annotate_span_for_completion_response(span, response, i)
+
+                    total_input_tokens += response.usage["prompt_tokens"]
+                    total_output_tokens += response.usage["completion_tokens"]
+                    finish_reasons.append(response.choices[0].finish_reason)
+
+                    message = response.choices[0].message
+                    responses.append(message)
+                    assistant_message = self.convert_message_to_message_param(message)
+                    messages.append(assistant_message)
+
                     if (
-                        response.choices[0].message.tool_calls is not None
-                        and len(response.choices[0].message.tool_calls) > 0
+                        response.choices[0].finish_reason
+                        == CompletionsFinishReason.TOOL_CALLS
                     ):
-                        tool_tasks = [
-                            self.execute_tool_call(tool_call)
-                            for tool_call in response.choices[0].message.tool_calls
-                        ]
+                        if (
+                            response.choices[0].message.tool_calls is not None
+                            and len(response.choices[0].message.tool_calls) > 0
+                        ):
+                            tool_tasks = [
+                                self.execute_tool_call(tool_call)
+                                for tool_call in response.choices[0].message.tool_calls
+                            ]
 
-                        tool_results = await self.executor.execute_many(tool_tasks)
+                            tool_results = await self.executor.execute_many(tool_tasks)
 
+                            self.logger.debug(
+                                f"Iteration {i}: Tool call results: {str(tool_results) if tool_results else 'None'}"
+                            )
+
+                            for result in tool_results:
+                                if isinstance(result, BaseException):
+                                    self.logger.error(
+                                        f"Warning: Unexpected error during tool execution: {result}. Continuing..."
+                                    )
+                                    span.record_exception(result)
+                                    continue
+                                elif isinstance(result, ToolMessage):
+                                    messages.append(result)
+                                    responses.append(result)
+                    else:
                         self.logger.debug(
-                            f"Iteration {i}: Tool call results: {str(tool_results) if tool_results else 'None'}"
+                            f"Iteration {i}: Stopping because finish_reason is '{response.choices[0].finish_reason}'"
                         )
+                        break
 
-                        for result in tool_results:
-                            if isinstance(result, BaseException):
-                                self.logger.error(
-                                    f"Warning: Unexpected error during tool execution: {result}. Continuing..."
-                                )
-                                span.record_exception(result)
-                                continue
-                            elif isinstance(result, ToolMessage):
-                                messages.append(result)
-                                responses.append(result)
-                else:
-                    self.logger.debug(
-                        f"Iteration {i}: Stopping because finish_reason is '{response.choices[0].finish_reason}'"
-                    )
-                    break
+                if params.use_history:
+                    self.history.set(messages)
 
-            if params.use_history:
-                self.history.set(messages)
+                self._log_chat_finished(model=model)
 
-            self._log_chat_finished(model=model)
+                if self.context.tracing_enabled:
+                    span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, total_input_tokens)
+                    span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, total_output_tokens)
+                    span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, finish_reasons)
 
-            if self.context.tracing_enabled:
-                span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, total_input_tokens)
-                span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, total_output_tokens)
-                span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, finish_reasons)
-
-                for i, res in enumerate(responses):
-                    response_data = (
-                        self.extract_response_message_attributes_for_tracing(
-                            res, prefix=f"response.{i}"
+                    for i, res in enumerate(responses):
+                        response_data = (
+                            self.extract_response_message_attributes_for_tracing(
+                                res, prefix=f"response.{i}"
+                            )
                         )
-                    )
-                    span.set_attributes(response_data)
+                        span.set_attributes(response_data)
 
+            # Emit after_llm_generate hook on success
+            await instrument._emit(
+                "after_llm_generate",
+                llm=self,
+                prompt=original_prompt,
+                response=responses
+            )
+            
             return responses
+        except Exception as e:
+            # Emit error_llm_generate hook on exception
+            await instrument._emit(
+                "error_llm_generate",
+                llm=self,
+                prompt=original_prompt,
+                exc=e
+            )
+            raise
 
     async def generate_str(
         self,

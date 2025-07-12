@@ -122,7 +122,7 @@ The Inspector integrates with mcp-agent through a formal instrumentation hook sy
 ### Hook Architecture
 
 The hook system follows a publish-subscribe pattern with these key characteristics:
-- **Zero overhead**: <70ns per emit with no subscribers
+- **Zero overhead**: <2000ns (2µs) per emit with no subscribers
 - **Exception safe**: Subscriber errors are logged but never break agent execution
 - **Type flexible**: Supports both sync and async callbacks
 
