@@ -38,6 +38,38 @@ mount(app)  # One line to enable inspector!
 # Access at http://localhost:7800/_inspector/ui
 ```
 
+### Configuration
+
+Inspector is configured via the `inspector:` section in your `mcp_agent.config.yaml` file. Create this file in your project root if it doesn't exist.
+
+```yaml
+# mcp_agent.config.yaml
+
+inspector:
+  # Master switch for the inspector. Must be true to enable.
+  # Defaults to false for backward compatibility.
+  enabled: true
+  
+  # Port for the Inspector UI and API
+  port: 7800
+  
+  # Directory to store trace files
+  storage:
+    traces_dir: "~/.mcp_traces"
+  
+  # Security settings (important for future milestones)
+  security:
+    auth_enabled: false
+    cors_origins:
+      - "http://localhost:5173"  # For local Vite dev server
+  
+  # Enable verbose debugging for inspector components
+  debug:
+    debug: true
+```
+
+Settings are loaded with this precedence: Runtime arguments > Environment variables > YAML file > Defaults.
+
 ## Development Workflow
 
 ### Pre-commit Checklist
@@ -251,105 +283,204 @@ du -h ~/.mcp_traces/*
 tail -f ~/.mcp_traces/*.jsonl.gz | gunzip
 ```
 
-## Development Patterns
+## Instrumentation Patterns
 
-### Instrumentation Patterns
+**⚠️ CRITICAL: Dual System Reality**
 
-The project is migrating from a direct OpenTelemetry integration to a decoupled, hook-based system. All new instrumentation **MUST** use the hook system.
+The codebase currently contains TWO parallel instrumentation systems:
+1. **Legacy**: Direct OpenTelemetry calls throughout core (`@telemetry.traced`, manual spans)
+2. **New**: Hook-based system with Inspector as subscriber
 
-#### The Correct Pattern: Hook-Based Instrumentation
-This is the required pattern for all new features.
+This is technical debt being actively migrated. See [Architecture §6.6](architecture.md#66-architectural-migration-from-direct-otel-to-hook-based) for full context.
 
-1.  **Define the Hook**: If a new hook is needed, add it to the formal contract at `docs/inspector/instrumentation-hooks.md`. This includes its name, signature, and when it's emitted.
+### Required Pattern for NEW Development
 
-2.  **Emit the Hook**: In the core `mcp-agent` code, at the appropriate logical point, emit the event using `instrument._emit()`. The core code should have **no direct OTel calls**.
+All new features MUST use ONLY the hook-based pattern:
 
-    ```python
-    # In a core agent or workflow method
-    from mcp_agent.core import instrument
-
-    # ... some logic ...
-    await instrument._emit("my_new_event_name", arg1=value1, arg2=value2)
-    # ... more logic ...
-    ```
-
-3.  **Create a Subscriber**: In `src/mcp_agent/inspector/subscribers.py`, create a subscriber function to listen for the event and translate it into telemetry data. The subscriber is responsible for all interaction with OpenTelemetry.
-
-    ```python
-    # In src/mcp_agent/inspector/subscribers.py
-    from opentelemetry import trace
-
-    async def on_my_new_event(arg1, arg2, **_kw):
-        span = trace.get_current_span()
-        if span and span.is_recording():
-            span.set_attribute("my.custom.attribute.one", arg1)
-            span.set_attribute("my.custom.attribute.two", arg2)
-
-    # In register_all_subscribers()
-    instrument.register("my_new_event_name", on_my_new_event)
-    ```
-
-#### Legacy Pattern (To Be Deprecated)
-
-You will see direct OTel integration, like the `@telemetry.traced()` decorator and manual `tracer.start_as_current_span()` calls, throughout the existing core codebase. **This pattern is deprecated and should not be used for new development.** The roadmap includes tasks to refactor and remove this technical debt.
-
-### Adding New Span Attributes
-
-```python
-# In your workflow or agent code
-from opentelemetry import trace
-
-span = trace.get_current_span()
-if span:
-    span.set_attribute("mcp.custom.my_metric", value)
-    # For JSON data
-    span.set_attribute("mcp.state.my_data_json", json.dumps(data))
+#### Step 1: Define the Hook
+Add to [instrumentation-hooks.md](instrumentation-hooks.md) if needed:
+```markdown
+| before_my_operation | Before operation starts | context, params | v1.3 |
+| after_my_operation | After success | context, params, result | v1.3 |
+| error_my_operation | On failure | context, params, exc | v1.3 |
 ```
 
-### Using the State Decorator
+#### Step 2: Emit in Core Code
+```python
+# In core mcp-agent code - NO OpenTelemetry imports!
+from mcp_agent.core import instrument
 
+async def my_operation(context, params):
+    # Fast-path optimization for hot paths
+    if instrument._hooks.get("before_my_operation"):
+        await instrument._emit("before_my_operation", 
+                             context=context, 
+                             params=params)
+    
+    try:
+        result = await self._do_work(params)
+        
+        if instrument._hooks.get("after_my_operation"):
+            await instrument._emit("after_my_operation",
+                                 context=context,
+                                 params=params,
+                                 result=result)
+        return result
+        
+    except Exception as e:
+        if instrument._hooks.get("error_my_operation"):
+            await instrument._emit("error_my_operation",
+                                 context=context,
+                                 params=params,
+                                 exc=e)
+        raise
+```
+
+#### Step 3: Subscribe in Inspector
+```python
+# In mcp_agent/inspector/subscribers.py
+from opentelemetry import trace
+import json
+
+async def _before_my_operation(context, params, **_kw):
+    """Enrich span with operation details"""
+    span = trace.get_current_span()
+    if span and span.is_recording():
+        span.set_attribute("mcp.operation.params_json", 
+                          json.dumps(params))
+        # Use inspector.context.get() for session_id
+        span.set_attribute("session.id", 
+                          inspector.context.get())
+
+# In register_all_subscribers()
+instrument.register("before_my_operation", _before_my_operation)
+```
+
+### Common Patterns
+
+#### State Capture
+Use the `@dump_state_to_span()` decorator for automatic result capture:
 ```python
 from mcp_agent.inspector.decorators import dump_state_to_span
 
 class MyWorkflow(Workflow):
-    @dump_state_to_span()  # Automatically captures return value
-    async def run(self, context: Context) -> MyResult:
-        result = MyResult(...)
-        return result  # Saved as mcp.state.my_result_json
+    @dump_state_to_span()  # Captures as mcp.state.run_json
+    async def run(self, context: Context) -> WorkflowResult:
+        return WorkflowResult(...)
 ```
 
-### Hook Subscriber Template
-
-Inspector uses the instrumentation hook system defined in [instrumentation-hooks.md](instrumentation-hooks.md):
+#### JSON Attribute Convention
+- Always suffix JSON attributes with `_json`
+- Apply 30KB size limit with truncation flag
+- Use consistent paths: `mcp.{category}.{name}_json`
 
 ```python
-from mcp_agent.core import instrument
+if len(json_str) > 30720:  # 30KB
+    span.set_attribute(f"{key}_truncated", True)
+    json_str = json_str[:30720]
+span.set_attribute(key, json_str)
+```
+
+#### Session ID Propagation
+Never generate new session IDs - always use context:
+```python
+from mcp_agent.inspector import context as insp_ctx
+
+# At workflow root (once)
+session_id = str(uuid4())
+insp_ctx.set(session_id)
+
+# Anywhere else
+current_session = insp_ctx.get()
+```
+
+### What NOT to Do
+
+❌ **Direct OTel in New Code**
+```python
+# WRONG - Never do this in new features
 from opentelemetry import trace
-import json
 
-async def before_llm_generate(llm, prompt, **_kw):
-    """Capture prompt before LLM call"""
-    span = trace.get_current_span()
-    if span:
-        span.set_attribute("mcp.llm.prompt_json", json.dumps(prompt))
-        span.set_attribute("mcp.llm.provider", llm.provider_name)
-        span.set_attribute("mcp.llm.model", llm.model_name)
-
-async def after_tool_call(tool_name, args, result, context, **_kw):
-    """Capture tool result after execution"""
-    span = trace.get_current_span()
-    if span:
-        span.set_attribute("mcp.tool.output_json", json.dumps(result))
-
-# Register subscribers
-instrument.register("before_llm_generate", before_llm_generate)
-instrument.register("after_tool_call", after_tool_call)
+@telemetry.traced("my_new_feature")  # NO!
+async def my_new_feature():
+    span = trace.get_current_span()  # NO!
+    span.set_attribute("foo", "bar")  # NO!
 ```
 
-For legacy mcp-agent versions without hook support:
+❌ **Mutating Hook Arguments**
+```python
+# WRONG - Never mutate objects
+async def _before_tool_call(tool_name, args, **_kw):
+    args["injected"] = "value"  # NO! Read-only!
+```
+
+❌ **Heavy Processing in Subscribers**
+```python
+# WRONG - Keep under 200µs
+async def _after_llm_generate(response, **_kw):
+    embeddings = await compute_embeddings(response)  # NO!
+    # Instead: enqueue to background task
+```
+
+### Migration Path for Existing Code
+
+When refactoring legacy code:
+
+1. **Add hooks FIRST** (alongside existing OTel)
+2. **Verify parity** (same spans/attributes generated)
+3. **Remove OTel** (only after verification)
+4. **Update tests** (use hook capture utilities)
+
+Example migration:
+```python
+# PHASE 1: Add hooks (OTel still present)
+@telemetry.traced("agent.call")
+async def call(self):
+    # NEW: Add hook
+    await instrument._emit("before_agent_call", agent=self)
+    
+    # EXISTING: OTel still here temporarily
+    span = trace.get_current_span()
+    # ... existing span manipulation ...
+
+# PHASE 2: Verify both produce same telemetry
+
+# PHASE 3: Remove OTel (separate PR)
+async def call(self):
+    # ONLY hooks remain
+    await instrument._emit("before_agent_call", agent=self)
+    # ... business logic ...
+```
+
+### Testing Patterns
+
+Use the hook capture utility for tests:
+```python
+from mcp_agent.core.instrument import capture_hook
+
+async def test_my_operation_emits_hooks():
+    async with capture_hook("before_my_operation") as calls:
+        await my_operation(context, params)
+    
+    assert len(calls) == 1
+    assert calls[0][1]["params"] == params
+```
+
+### Performance Considerations
+
+- Hook emission overhead: <2µs per call
+- Use fast-path guards for hot paths
+- Batch related hooks when possible
+- Profile before optimizing
+
+### Legacy Support
+
+For older mcp-agent versions without hooks:
 ```bash
-INSPECTOR_ENABLE_PATCH=1 uv run python my_script.py
+INSPECTOR_ENABLE_PATCH=1 python my_script.py
 ```
+
+This enables monkey-patching fallback (discouraged).
 
 ### Lazy Imports Pattern
 

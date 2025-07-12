@@ -1,7 +1,7 @@
 # Milestone 1-bootstrap: Progress Tracker
 
 **Last Updated**: 2025-07-13  
-**Overall Progress**: 82% (9/11 tasks completed)  
+**Overall Progress**: 75% (9/12 tasks completed)  
 **Note**: Additional tasks identified during audit to ensure complete foundation
 
 ## Completed Tasks
@@ -218,6 +218,13 @@
 - Environment variable MCP_TRACES_DIR allows easy testing with temporary directories
 - SSE endpoints require special handling in tests due to their streaming nature
 - Gzipped JSONL format works well for trace storage and can be parsed line-by-line
+
+### ⏳ bootstrap/feat/configuration-system
+**Status**: Not started  
+**Priority**: Critical
+**Dependencies**: inspector-package-skeleton  
+**Estimated effort**: 4-6 hours  
+**Why added**: Inspector requires a flexible, discoverable, and future-proof configuration system
 
 ### ⏳ bootstrap/feat/inspector-span-exporter
 **Status**: Not started  

@@ -109,6 +109,7 @@ Profile first, optimize second (target <5µs hook overhead per span).
   - @docs/inspector/context-propagation.md - Session ID and context handling
   - @docs/inspector/vision.md - Project vision and roadmap
   - @docs/inspector/ux-ui-playbook.md - UI/UX patterns, design tokens
+  - @docs/inspector/data-schemas.md - Data schemas and API contracts
 
 **When starting any task**: Re-read the milestone doc and any related sections from the docs above. The documentation is authoritative and contains critical implementation details.
 

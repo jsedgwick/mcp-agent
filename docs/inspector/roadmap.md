@@ -82,6 +82,12 @@ WHAT: Implement core hook bus in mcp_agent.core.instrument with register/unregis
 HOW: Follow contract in [instrumentation-hooks.md](instrumentation-hooks.md). Add first three emit sites: Agent.call_tool, Workflow.run, AugmentedLLM.generate.
 DONE-WHEN: Unit test shows callbacks fire when hooks are emitted.
 
+### bootstrap/feat/configuration-system
+WHY: Inspector requires a flexible, discoverable, and future-proof way to manage its settings.
+WHAT: Implement a configuration system using a new `inspector:` top-level section in `mcp-agent.config.yaml`. This includes creating a comprehensive `InspectorSettings` Pydantic model and establishing a clear configuration precedence (runtime > env > file > defaults).
+HOW: Define the Pydantic models in a new `inspector/settings.py` file, integrate it into the main `Settings` class in `config.py`, and update the `mount()` function to consume these settings. Update the JSON schema.
+DONE-WHEN: Inspector can be fully configured via the YAML file, and settings like the port and enabled status are correctly applied at startup.
+
 ### bootstrap/feat/inspector-package-skeleton
 WHY: import path must exist.
 WHAT: create mcp_agent/inspector/__init__.py with mount and __version__.
@@ -412,29 +418,116 @@ No milestones pushed back: tasks pulled into 2-observe are low-effort (~2–3 de
   - Performance tests ensure <1.5s for 50k spans
   - All tests must complete in <90s total
 
-## Technical Debt: OTel Migration Tasks
+## Technical Debt: Architectural Migration from Direct OTel to Hooks
 
-These tasks track the migration from direct OpenTelemetry integration to the hook-based system. They should be prioritized alongside feature development to prevent accumulating more technical debt.
+**CRITICAL CONTEXT**: The codebase contains two parallel instrumentation systems that must be reconciled. This section tracks the systematic migration from direct OpenTelemetry integration to the decoupled hook-based architecture.
 
-### Phase 1: Core Agent Migration (Target: During 3-understand)
-- `migration/refactor/agent-remove-otel`: Remove direct OTel from Agent class, use hooks only
-- `migration/refactor/workflow-remove-otel`: Remove @telemetry.traced from Workflow classes
-- `migration/refactor/executor-remove-otel`: Replace executor's @telemetry.traced with hooks
+### Current State (Dual Instrumentation)
 
-### Phase 2: LLM Provider Migration (Target: During 4-visualize)
-- `migration/refactor/llm-providers-remove-otel`: Remove direct span creation from all LLM providers
-- `migration/refactor/mcp-client-remove-otel`: Remove OTel from MCPAgentClientSession (already has hooks)
+The codebase currently has BOTH:
+1. **Legacy Direct OTel**: Core classes create spans via `@telemetry.traced()` and manual `tracer.start_as_current_span()`
+2. **New Hook System**: Core emits hooks via `instrument._emit()`, Inspector subscribes to enrich
 
-### Phase 3: Context Decoupling (Target: During 5-interact)
-- `migration/refactor/context-remove-tracer`: Remove tracer instance from Context object
-- `migration/refactor/telemetry-module-deprecate`: Mark @telemetry.traced as deprecated
-- `migration/feat/otel-optional-dependency`: Make OpenTelemetry an optional dependency
+This creates redundancy where the same operation generates telemetry twice:
+- Agent.call() creates its own span AND emits hooks
+- Inspector subscribers then enrich the span that core already created
+- This is architectural debt that impacts maintainability and performance
 
-### Migration Guidelines
-1. Each refactor task should maintain backward compatibility
-2. Hook emission must happen BEFORE removing OTel calls
-3. Tests must verify equivalent telemetry data is captured
-4. Performance must not degrade (target: <2µs per hook)
+### Migration Phases
+
+#### Phase 1: Core Agent Migration (Target: During 3-understand milestone)
+Critical path - these components are most heavily instrumented:
+
+| Task ID | Description | Complexity | Risk |
+|---------|-------------|------------|------|
+| `migration/refactor/agent-remove-otel` | Remove direct OTel from Agent class, use hooks only | High | Breaking changes to span structure |
+| `migration/refactor/workflow-remove-otel` | Remove @telemetry.traced from all Workflow subclasses | High | Loss of workflow visibility |
+| `migration/refactor/executor-remove-otel` | Replace executor's @telemetry.traced with hooks | Medium | Temporal compatibility |
+| `migration/test/span-parity-tests` | Verify hook-based spans match legacy spans | Medium | False confidence |
+
+#### Phase 2: Provider & Client Migration (Target: During 4-visualize milestone)
+External interfaces that need careful handling:
+
+| Task ID | Description | Complexity | Risk |
+|---------|-------------|------------|------|
+| `migration/refactor/llm-providers-remove-otel` | Remove span creation from all LLM providers | High | Provider-specific logic |
+| `migration/refactor/mcp-client-remove-otel` | Remove remaining OTel from MCPAgentClientSession | Low | Already has hooks |
+| `migration/refactor/resource-prompt-otel` | Migrate resource/prompt telemetry to hooks | Medium | MCP spec compliance |
+
+#### Phase 3: Context & Module Decoupling (Target: During 5-interact milestone)
+Final cleanup to achieve zero OTel imports in core:
+
+| Task ID | Description | Complexity | Risk |
+|---------|-------------|------------|------|
+| `migration/refactor/context-remove-tracer` | Remove tracer instance from Context object | High | API breaking change |
+| `migration/refactor/telemetry-module-deprecate` | Add deprecation warnings to telemetry module | Low | User confusion |
+| `migration/feat/otel-optional-dependency` | Make OpenTelemetry optional in pyproject.toml | Medium | Import errors |
+| `migration/docs/migration-guide` | Document migration path for external users | Low | None |
+
+### Migration Rules (MUST FOLLOW)
+
+1. **Hook First, Remove Second**: Always implement hook emission BEFORE removing direct OTel
+2. **Maintain Compatibility**: Each task must maintain backward compatibility for one minor version
+3. **Test Parity**: Write tests proving hook-based telemetry matches legacy telemetry
+4. **Performance Target**: Hook overhead must stay under 2µs per emission
+5. **Incremental Rollout**: Use feature flags if needed to toggle between old/new paths
+
+### Success Metrics
+
+- [ ] Core mcp-agent has ZERO direct OpenTelemetry imports
+- [ ] All telemetry flows through the hook system
+- [ ] No degradation in span quality or completeness  
+- [ ] Performance improves (fewer redundant operations)
+- [ ] Inspector remains the only OTel dependency
+
+### Example Migration Pattern
+
+```python
+# BEFORE (direct OTel)
+class Agent:
+    @telemetry.traced("agent.call")
+    async def call(self, message: str) -> str:
+        # Direct span manipulation
+        span = trace.get_current_span()
+        span.set_attribute("agent.message", message)
+        result = await self._process(message)
+        span.set_attribute("agent.result", result)
+        return result
+
+# AFTER (hook-based)
+class Agent:
+    async def call(self, message: str) -> str:
+        # Emit hook for observation
+        if instrument._hooks.get("before_agent_call"):
+            await instrument._emit("before_agent_call", agent=self)
+        
+        try:
+            result = await self._process(message)
+            
+            if instrument._hooks.get("after_agent_call"):
+                await instrument._emit("after_agent_call", agent=self, result=result)
+            
+            return result
+        except Exception as e:
+            if instrument._hooks.get("error_agent_call"):
+                await instrument._emit("error_agent_call", agent=self, exc=e)
+            raise
+```
+
+### Risks & Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Span structure changes | Breaking downstream tools | Maintain compatibility layer |
+| Missing telemetry | Blind spots in debugging | Parity tests before removal |
+| Performance regression | Slower agent execution | Benchmark each change |
+| User confusion | Adoption friction | Clear migration guide |
+
+### Dependencies
+
+- Instrumentation hooks v1.2 spec (DONE - see [instrumentation-hooks.md](instrumentation-hooks.md))
+- Inspector hook subscribers implemented (In Progress - 2-observe milestone)
+- Comprehensive test coverage for all paths (TODO)
 
 ## Future Work (Beyond 6-production)
 
