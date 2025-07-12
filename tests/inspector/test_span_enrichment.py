@@ -32,51 +32,43 @@ from mcp_agent.inspector.subscribers import (
 )
 
 
-# Global exporter for all tests to avoid TracerProvider conflicts
-_GLOBAL_MEMORY_EXPORTER = None
-_GLOBAL_TRACER = None
-
-def _get_or_create_test_tracer():
-    """Get or create a singleton test tracer."""
-    global _GLOBAL_MEMORY_EXPORTER, _GLOBAL_TRACER
-    
-    if _GLOBAL_MEMORY_EXPORTER is None:
-        # Create in-memory span exporter
-        _GLOBAL_MEMORY_EXPORTER = InMemorySpanExporter()
-        
-        # Check if a provider is already set
-        current_provider = trace.get_tracer_provider()
-        
-        # If it's the default NoOpTracerProvider, set a real one
-        if current_provider.__class__.__name__ == 'ProxyTracerProvider':
-            provider = TracerProvider()
-            processor = SimpleSpanProcessor(_GLOBAL_MEMORY_EXPORTER)
-            provider.add_span_processor(processor)
-            
-            try:
-                trace.set_tracer_provider(provider)
-            except Exception:
-                # If it fails, just use the existing provider
-                pass
-        
-        # Get tracer
-        _GLOBAL_TRACER = trace.get_tracer(__name__)
-    
-    return _GLOBAL_TRACER, _GLOBAL_MEMORY_EXPORTER
-
-
 @pytest.fixture
 def setup_tracing():
     """Set up in-memory tracing for tests."""
-    tracer, exporter = _get_or_create_test_tracer()
+    # Create a fresh in-memory span exporter for this test
+    memory_exporter = InMemorySpanExporter()
     
-    # Clear any existing spans
-    exporter.clear()
+    # Get the current global tracer provider
+    current_provider = trace.get_tracer_provider()
     
-    yield tracer, exporter
+    # Check if we need to create a new TracerProvider
+    if current_provider.__class__.__name__ == 'ProxyTracerProvider':
+        # No real provider set yet, create one
+        provider = TracerProvider()
+        trace.set_tracer_provider(provider)
+        current_provider = provider
     
-    # Clean up after test
-    exporter.clear()
+    # Add our exporter to the current provider
+    processor = SimpleSpanProcessor(memory_exporter)
+    
+    # If the provider has add_span_processor method, use it
+    if hasattr(current_provider, 'add_span_processor'):
+        current_provider.add_span_processor(processor)
+    
+    # Get a tracer
+    tracer = trace.get_tracer(__name__)
+    
+    yield tracer, memory_exporter
+    
+    # Clean up: remove our processor if possible
+    if hasattr(current_provider, '_span_processors') and processor in current_provider._span_processors:
+        current_provider._span_processors.remove(processor)
+    
+    # Ensure the exporter is cleared
+    memory_exporter.clear()
+    
+    # Force shutdown the processor to ensure no lingering references
+    processor.shutdown()
 
 
 @pytest.fixture(autouse=True)
