@@ -89,10 +89,13 @@ before_* called immediately before user-visible side effect.
 after_* called immediately after successful return.
 error_* called when an action raises (includes exc kwarg).
 ────────────────────────────────────────────────────────────────────────
-5  Core hook catalogue (v1.0)
+5  Core hook catalogue (v1.1)
 ────────────────────────────────────────────────────────────────────────
 
 Hook name	When emitted	Signature (kwargs)
+before_agent_call	Before Agent.call()	agent
+after_agent_call	On successful return	agent, result
+error_agent_call	Exception in Agent.call()	agent, exc
 before_llm_generate	Just before provider call	llm, prompt
 after_llm_generate	On successful return	llm, prompt, response, usage
 error_llm_generate	Exception	llm, prompt, exc
@@ -118,6 +121,7 @@ instrumentation-hooks.md contains the authoritative version table:
 
 ## Version history
 v1.0  (2025-07-11) initial set
+v1.1  (2025-07-13) added agent hooks
 ────────────────────────────────────────────────────────────────────────
 7  Subscriber best-practice
 ────────────────────────────────────────────────────────────────────────
@@ -187,6 +191,7 @@ Update CHANGELOG and this header.
 ## History
 v1.0  2025-07-11  initial catalogue
 v1.0  2025-07-13  finalized; adjusted performance target from 70ns to 2µs based on implementation testing
+v1.1  2025-07-13  added before_agent_call, after_agent_call, error_agent_call hooks
 ────────────────────────────────────────────────────────────────────────
 12  Referencing this doc from others
 ────────────────────────────────────────────────────────────────────────

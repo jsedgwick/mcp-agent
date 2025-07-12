@@ -195,6 +195,163 @@ instrument.register("before_agent_call", before_agent_call)
 
 ---
 
+### bootstrap/feat/rpc-instrumentation
+**Priority**: Critical  
+**Description**: Implement RPC/transport layer hooks  
+**Dependencies**: instrumentation-hook-bus
+
+**Acceptance Criteria**:
+- `before_rpc_request`, `after_rpc_response`, `error_rpc_request` hooks implemented
+- Hooks capture JSON-RPC method, id, transport type, duration
+- Works for all transports: stdio, sse, http, websocket
+- Transport health attributes captured (status, reconnect count)
+- Unit tests verify hooks fire correctly
+
+**Implementation Notes**:
+```python
+# Files to modify:
+src/mcp_agent/mcp/gen_client.py         # Add hooks around RPC calls
+src/mcp_agent/mcp/mcp_connection_manager.py  # Add transport health hooks
+
+# Example implementation:
+async def _request(self, method: str, params: dict):
+    envelope = {"jsonrpc": "2.0", "method": method, "params": params, "id": self._next_id()}
+    await instrument._emit("before_rpc_request", envelope=envelope, transport=self.transport_type)
+    start_time = time.time()
+    try:
+        response = await self._send(envelope)
+        duration_ms = (time.time() - start_time) * 1000
+        await instrument._emit("after_rpc_response", envelope=response, transport=self.transport_type, duration_ms=duration_ms)
+        return response
+    except Exception as e:
+        await instrument._emit("error_rpc_request", envelope=envelope, transport=self.transport_type, exc=e)
+        raise
+```
+
+---
+
+### bootstrap/feat/agent-hooks-spec
+**Priority**: High  
+**Description**: Add agent hooks to formal specification  
+**Dependencies**: instrumentation-hook-bus
+
+**Acceptance Criteria**:
+- `before_agent_call`, `after_agent_call`, `error_agent_call` added to instrumentation-hooks.md
+- Hook catalogue table updated with signatures
+- Version bumped to v1.1 with changelog entry
+- Existing implementation aligned with spec
+
+**Implementation Notes**:
+- Add to section 5 (Core hook catalogue)
+- Signature: before_agent_call(agent, **kwargs)
+- Update version history section
+- No code changes needed (already implemented)
+
+---
+
+### bootstrap/feat/session-events-endpoints
+**Priority**: High  
+**Description**: Implement basic session listing and SSE endpoints  
+**Dependencies**: gateway-health-endpoint
+
+**Acceptance Criteria**:
+- GET `/_inspector/sessions` returns list of trace files from ~/.mcp_traces/
+- GET `/_inspector/events` returns SSE stream
+- Sessions include: id, started_at, status (from file metadata)
+- Events stream connected/disconnected status
+- OpenAPI spec updated with new endpoints
+
+**Implementation Notes**:
+```python
+# New files:
+src/mcp_agent/inspector/sessions.py  # Session listing logic
+src/mcp_agent/inspector/events.py    # SSE streaming
+
+# Gateway updates:
+@_router.get("/sessions")
+async def list_sessions():
+    # Scan ~/.mcp_traces/ for *.jsonl.gz files
+    # Extract metadata from first/last span
+    # Return SessionMeta objects
+
+@_router.get("/events") 
+async def event_stream():
+    # Return EventSourceResponse
+    # Subscribe to AsyncEventBus
+    # Stream events as SSE
+```
+
+---
+
+### bootstrap/feat/inspector-span-exporter
+**Priority**: High  
+**Description**: Extend existing FileSpanExporter for Inspector needs  
+**Dependencies**: telemetry-span-attributes
+
+**Acceptance Criteria**:
+- Extends existing FileSpanExporter to add gzip compression
+- Default path to ~/.mcp_traces/{session_id}.jsonl.gz
+- Integrates with Inspector's context.get() for session_id
+- Supports file rotation at 100MB
+- Handles disk space errors gracefully
+- Preserves backward compatibility with existing FileSpanExporter
+
+**Implementation Notes**:
+```python
+# Option A: Extend existing FileSpanExporter
+# Modify src/mcp_agent/tracing/file_span_exporter.py:
+- Add gzip support when filename ends with .gz
+- Add inspector_mode flag or detect based on path pattern
+- Integrate with inspector.context.get() when session_id is used
+
+# Option B: Subclass in inspector module
+# src/mcp_agent/inspector/exporters.py
+from mcp_agent.tracing.file_span_exporter import FileSpanExporter
+class InspectorFileSpanExporter(FileSpanExporter):
+    def __init__(self):
+        path_settings = TracePathSettings(
+            path_pattern="~/.mcp_traces/{unique_id}.jsonl.gz",
+            unique_id="session_id"
+        )
+        super().__init__(path_settings=path_settings)
+    
+    # Override export() to add gzip support
+```
+
+---
+
+### bootstrap/feat/rpc-span-enrichment
+**Priority**: Medium  
+**Description**: Add RPC attribute constants and subscribers  
+**Dependencies**: rpc-instrumentation, telemetry-span-attributes
+
+**Acceptance Criteria**:
+- SpanMeta updated with RPC attribute constants
+- Subscribers implemented for RPC hooks
+- Size limits enforced for request/response JSON
+- Transport health attributes captured
+- Tests verify enrichment works
+
+**Implementation Notes**:
+```python
+# Update span_meta.py:
+JSONRPC_VERSION = "mcp.jsonrpc.version"
+RPC_METHOD = "mcp.rpc.method"
+RPC_ID = "mcp.rpc.id"
+RPC_TRANSPORT = "mcp.rpc.transport"
+RPC_DURATION_MS = "mcp.rpc.duration_ms"
+TRANSPORT_STATUS = "mcp.transport.status"
+
+# Add to subscribers.py:
+async def before_rpc_request(envelope, transport, **_kw):
+    span = trace.get_current_span()
+    if span and span.is_recording():
+        span.set_attribute(SpanMeta.RPC_METHOD, envelope.get("method"))
+        # etc...
+```
+
+---
+
 ### bootstrap/ci/github-actions-setup
 **Priority**: Low  
 **Description**: Establish CI/CD pipeline
@@ -219,12 +376,20 @@ instrument.register("before_agent_call", before_agent_call)
 graph TD
     H[instrumentation-hook-bus] --> A[package-skeleton]
     H --> L[llm-generate-hooks]
+    H --> R[rpc-instrumentation]
+    H --> AS[agent-hooks-spec]
     A --> B[gateway-health]
     B --> D[ui-react-scaffold]
+    B --> SE[session-events-endpoints]
     L --> C[telemetry-span]
     A --> C
+    C --> ISE[inspector-span-exporter]
+    R --> RSE[rpc-span-enrichment]
+    C --> RSE
     D --> E[github-actions]
-    C --> E
+    SE --> E
+    ISE --> E
+    RSE --> E
 ```
 
 ## Definition of Done

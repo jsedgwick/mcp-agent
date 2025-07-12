@@ -1,7 +1,8 @@
 # Milestone 1-bootstrap: Progress Tracker
 
 **Last Updated**: 2025-07-13  
-**Overall Progress**: 83% (5/6 tasks completed)
+**Overall Progress**: 64% (7/11 tasks completed)  
+**Note**: Additional tasks identified during audit to ensure complete foundation
 
 ## Completed Tasks
 
@@ -113,10 +114,11 @@
 - Mock objects require special handling to avoid infinite Mock chains
 - The hook system provides clean integration without modifying core mcp-agent code
 
+---
+
 ### ✅ bootstrap/feat/ui-react-scaffold
 **Completed**: 2025-07-13  
-**Commits**: 
-- feat(ui): create React scaffold with Vite
+**Commits**: feat(ui): create React scaffold with Vite
 
 **What was done**:
 - Created Vite + React + TypeScript project in packages/inspector_ui
@@ -128,27 +130,90 @@
 - Created UI integration tests (5 tests, all passing)
 - Created example script for standalone usage
 
-**Deviations from plan**:
-- None - implementation follows spec exactly
+**Deviations from plan**: None - implementation follows spec exactly
 
 **Lessons learned**:
 - Vite's proxy configuration makes local development seamless
 - StaticFiles mount in FastAPI works well for serving the UI
 - The base path configuration ensures assets load correctly
 
-## Pending Tasks
+---
 
-### ⏳ bootstrap/ci/github-actions-setup
+### ✅ bootstrap/ci/github-actions-setup
+**Completed**: 2025-07-13  
+**Branch**: feat/github-actions-frontend
+
+**What was done**:
+- Added frontend job to GitHub Actions workflow for TypeScript/ESLint checks
+- Created Playwright E2E test configuration
+- Added E2E test job to verify Inspector UI loads correctly
+- Created basic E2E tests for health endpoint and UI functionality
+- All CI jobs configured to run in parallel for speed
+
+**Deviations from plan**:
+- Python tests, mypy, and contract tests already existed in workflow
+- Only needed to add frontend-specific jobs (lint, build, E2E)
+
+**Lessons learned**:
+- Existing CI infrastructure was already comprehensive
+- Playwright webServer configuration makes E2E testing seamless
+- All tests should complete well under 90s target
+
+## Pending Tasks (Added after audit)
+
+### ⏳ bootstrap/feat/rpc-instrumentation
 **Status**: Not started  
-**Dependencies**: All other bootstrap tasks completed  
-**Estimated effort**: 2-3 hours
+**Priority**: Critical  
+**Dependencies**: instrumentation-hook-bus  
+**Estimated effort**: 4-6 hours  
+**Why added**: Audit revealed missing RPC/transport layer visibility
+
+### ✅ bootstrap/feat/agent-hooks-spec  
+**Completed**: 2025-07-13  
+**Commit**: `docs(hooks): add agent hooks to specification`  
+
+**What was done**:
+- Added before_agent_call, after_agent_call, error_agent_call to hook catalogue
+- Updated version to v1.1 with changelog entry
+- Clarified that agent hooks were already referenced in code but missing from spec
+
+**Deviations from plan**: None - documentation-only change as planned
+
+**Lessons learned**: 
+- Important to keep specification in sync with implementation
+- The hook was already being used by subscribers but wasn't formally documented
+
+### ⏳ bootstrap/feat/session-events-endpoints
+**Status**: Not started  
+**Priority**: High  
+**Dependencies**: gateway-health-endpoint  
+**Estimated effort**: 4-6 hours  
+**Why added**: Required for milestone 2 to show sessions and receive events
+
+### ⏳ bootstrap/feat/inspector-span-exporter
+**Status**: Not started  
+**Priority**: High  
+**Dependencies**: telemetry-span-attributes  
+**Estimated effort**: 3-4 hours  
+**Why added**: Need Inspector-specific exporter with gzip and session integration
+
+### ⏳ bootstrap/feat/rpc-span-enrichment
+**Status**: Not started  
+**Priority**: Medium  
+**Dependencies**: rpc-instrumentation, telemetry-span-attributes  
+**Estimated effort**: 2-3 hours  
+**Why added**: Capture RPC attributes in spans
 
 ## Metrics
 
-- **Velocity**: ~1.7 tasks/day (5 tasks in 3 days)
+- **Initial completion**: 6/6 tasks (100%)
+- **After audit**: 7/11 tasks (64%)
+- **Additional tasks identified**: 5
+- **Velocity**: 2 tasks/day (7 tasks in 3 days)
 - **Blockers encountered**: 1 (TracerProvider singleton in tests)
 - **Code coverage**: 75% for inspector module
-- **Lines of code**: ~600 (including tests)
+- **Lines of code**: ~800 (including tests)
+- **Estimated completion**: ~2 additional days
 
 ## Risks & Issues
 
