@@ -11,7 +11,16 @@ Then open your browser to:
 You should see the "Inspector Online" message and the backend version.
 """
 
-from mcp_agent.inspector import mount
+import sys
+import time
+
+try:
+    from mcp_agent.inspector import mount
+except ImportError as e:
+    print(f"Error: {e}", file=sys.stderr)
+    print("\nPlease install mcp-agent with inspector support:", file=sys.stderr)
+    print("  pip install 'mcp-agent[inspector]'", file=sys.stderr)
+    sys.exit(1)
 
 if __name__ == "__main__":
     print("Starting mcp-agent-inspector...")
@@ -26,12 +35,16 @@ if __name__ == "__main__":
     print("Press Ctrl+C to stop the server.")
     
     # Start the inspector in standalone mode
-    mount()
+    try:
+        mount()
+    except Exception as e:
+        print(f"\nError starting inspector: {e}", file=sys.stderr)
+        sys.exit(1)
     
     # Keep the server running
     try:
-        import time
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("\nShutting down inspector...")
+        sys.exit(0)
