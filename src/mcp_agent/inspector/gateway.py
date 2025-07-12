@@ -11,7 +11,7 @@ from fastapi import APIRouter, FastAPI
 from starlette.responses import JSONResponse
 
 if TYPE_CHECKING:  # pragma: no cover
-    import uvicorn
+    import uvicorn  # noqa: F401
 
 from .version import __version__
 

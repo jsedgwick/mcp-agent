@@ -1,9 +1,8 @@
 """Tests for the Inspector gateway module."""
 
-import asyncio
 import os
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -56,7 +55,7 @@ class TestMountFunction:
         
         try:
             with patch("mcp_agent.inspector.gateway.threading.Thread") as mock_thread:
-                with patch("uvicorn.Server") as mock_server:
+                with patch("uvicorn.Server"):
                     with patch("uvicorn.Config") as mock_config:
                         # Call mount without app (standalone mode)
                         mount()
@@ -76,7 +75,7 @@ class TestMountFunction:
         """mount() without app should spawn internal server."""
         with patch("mcp_agent.inspector.gateway.threading.Thread") as mock_thread:
             with patch("uvicorn.Server") as mock_server:
-                with patch("uvicorn.Config") as mock_config:
+                with patch("uvicorn.Config"):
                     with patch("builtins.print") as mock_print:
                         # Call mount without app
                         mount()
