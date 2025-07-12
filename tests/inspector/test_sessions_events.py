@@ -112,27 +112,39 @@ class TestSessionsEndpoint:
     
     def test_sessions_multiple_traces(self, client, temp_trace_dir):
         """Test listing multiple sessions sorted by start time."""
-        # Create multiple test traces
-        traces = [
-            ("session1", "2025-01-01T10:00:00Z", "completed"),
-            ("session2", "2025-01-01T11:00:00Z", "failed"),
-            ("session3", "2025-01-01T12:00:00Z", "paused"),
-        ]
+        # Create multiple test traces with proper status indicators
+        # Session 1: Completed (has end time)
+        create_test_trace(temp_trace_dir, "session1", [{
+            "span_id": "span-1",
+            "trace_id": "trace-1",
+            "start_time": "2025-01-01T10:00:00Z",
+            "end_time": "2025-01-01T10:10:00Z",
+            "name": "workflow.run",
+            "attributes": {},
+            "status": {"status_code": "OK"}
+        }])
         
-        for session_id, start_time, expected_status in traces:
-            spans = [{
-                "span_id": f"span-{session_id}",
-                "trace_id": f"trace-{session_id}",
-                "start_time": start_time,
-                "name": "workflow.run",
-                "attributes": {
-                    "mcp.session.paused": expected_status == "paused"
-                },
-                "status": {
-                    "status_code": "ERROR" if expected_status == "failed" else "OK"
-                }
-            }]
-            create_test_trace(temp_trace_dir, session_id, spans)
+        # Session 2: Failed (ERROR status)
+        create_test_trace(temp_trace_dir, "session2", [{
+            "span_id": "span-2",
+            "trace_id": "trace-2",
+            "start_time": "2025-01-01T11:00:00Z",
+            "end_time": "2025-01-01T11:05:00Z",
+            "name": "workflow.run",
+            "attributes": {},
+            "status": {"status_code": "ERROR"}
+        }])
+        
+        # Session 3: Paused (has paused attribute, no end time on workflow)
+        create_test_trace(temp_trace_dir, "session3", [{
+            "span_id": "span-3",
+            "trace_id": "trace-3",
+            "start_time": "2025-01-01T12:00:00Z",
+            # NO end_time - still running/paused
+            "name": "workflow.run",
+            "attributes": {"mcp.session.paused": True},
+            "status": {"status_code": "OK"}
+        }])
         
         # Get sessions
         response = client.get("/_inspector/sessions")
@@ -150,6 +162,33 @@ class TestSessionsEndpoint:
         assert data["sessions"][0]["status"] == "paused"
         assert data["sessions"][1]["status"] == "failed"
         assert data["sessions"][2]["status"] == "completed"
+    
+    def test_sessions_running_state(self, client, temp_trace_dir):
+        """Test detection of running sessions (no end time, not paused)."""
+        # Create a running session
+        create_test_trace(temp_trace_dir, "running-session", [{
+            "span_id": "span-1",
+            "trace_id": "trace-1",
+            "start_time": "2025-01-01T14:00:00Z",
+            # NO end_time and NO paused attribute = running
+            "name": "workflow.run",
+            "attributes": {
+                "mcp.workflow.type": "orchestrator",
+                "mcp.session.title": "Active Processing"
+            },
+            "status": {"status_code": "OK"}
+        }])
+        
+        response = client.get("/_inspector/sessions")
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert len(data["sessions"]) == 1
+        session = data["sessions"][0]
+        assert session["id"] == "running-session"
+        assert session["status"] == "running"
+        assert session["title"] == "Active Processing"
+        assert "ended_at" not in session  # No end time for running sessions
     
     def test_sessions_corrupt_trace(self, client, temp_trace_dir):
         """Test handling of corrupted trace files."""

@@ -95,13 +95,31 @@ async def _extract_session_metadata(trace_path: Path) -> Optional[SessionMeta]:
         started_at = first_span.get("start_time", "")
         ended_at = last_span.get("end_time", "") if last_span else None
         
-        # Determine status based on span attributes
-        if last_span:
-            status_code = last_span.get("status", {}).get("status_code")
-            if status_code == "ERROR":
-                status = "failed"
-            elif last_span.get("attributes", {}).get("mcp.session.paused", False):
-                status = "paused"
+        # Determine status based on span attributes and timing
+        # Priority order: paused > running > failed > completed
+        
+        # 1. Check for paused state (can be on any span)
+        is_paused = False
+        for line in lines:
+            try:
+                span = json.loads(line)
+                if span.get("attributes", {}).get("mcp.session.paused", False):
+                    is_paused = True
+                    break
+            except json.JSONDecodeError:
+                continue
+        
+        if is_paused:
+            status = "paused"
+        # 2. Check if still running (no end time on root/workflow span)
+        elif first_span.get("name") == "workflow.run" and not first_span.get("end_time"):
+            status = "running"
+        # 3. Check for errors
+        elif last_span and last_span.get("status", {}).get("status_code") == "ERROR":
+            status = "failed"
+        # 4. Default to completed if has end time
+        else:
+            status = "completed"
         
         # Try to extract engine type
         engine = "asyncio"
