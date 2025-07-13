@@ -19,6 +19,7 @@ from .version import __version__
 from .sessions import list_sessions, SessionMeta
 from .events import create_event_stream_response
 from .settings import InspectorSettings, load_inspector_settings
+from .trace_stream import get_trace_stream
 
 # Create the router with the inspector prefix
 _router = APIRouter(prefix="/_inspector")
@@ -59,6 +60,27 @@ async def event_stream(request: Request):
     The stream uses SSE format with automatic reconnection support.
     """
     return await create_event_stream_response(request)
+
+
+@_router.get("/trace/{session_id}")
+async def stream_trace(session_id: str, request: Request):
+    """Stream a trace file, supporting Range requests and caching.
+    
+    Args:
+        session_id: The session ID to fetch
+        request: FastAPI request object
+        
+    Returns:
+        Full file (gzipped) or partial content (decompressed) based on Range header
+        
+    Features:
+    - Supports HTTP Range requests for progressive loading
+    - ETags for efficient caching
+    - Serves compressed content for full file requests
+    - Decompresses on-the-fly for Range requests
+    """
+    settings = getattr(request.app.state, 'inspector_settings', None)
+    return await get_trace_stream(session_id, request, settings)
 
 
 def _run_local_uvicorn(app: FastAPI, settings: InspectorSettings) -> None:

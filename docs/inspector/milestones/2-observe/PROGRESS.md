@@ -1,7 +1,7 @@
 # Milestone 2-observe: Progress Tracker
 
 **Last Updated**: 2025-07-13  
-**Overall Progress**: 31% (4/13 tasks completed)  
+**Overall Progress**: 38% (5/13 tasks completed)  
 **Status**: In Progress  
 **Blocked By**: None (1-bootstrap 92% complete)
 
@@ -127,11 +127,25 @@ None yet.
 **Estimated effort**: 1-2 hours remaining
 **Notes**: OpenAPI spec already exists at docs/inspector/openapi.yaml
 
-### ⏳ observe/feat/trace-streaming-endpoint
-**Status**: Not started  
-**Dependencies**: trace-file-exporter (✅)  
-**Estimated effort**: 2-3 hours
-**Notes**: New task to complete trace file serving
+### ✅ observe/feat/trace-streaming-endpoint
+**Completed**: 2025-07-13  
+**Commit**: `feat(trace): implement trace streaming endpoint with hybrid compression`  
+
+**What was done**:
+- Created trace_stream.py with full streaming functionality
+- Hybrid approach: gzipped for full files, decompressed for Range requests
+- Robust security validation with path canonicalization
+- ETag support for efficient caching
+- Added endpoint to gateway.py at /trace/{session_id}
+- Comprehensive test suite (11 tests, all passing)
+- Demo script showing the functionality
+
+**Deviations from plan**: None
+
+**Lessons learned**: 
+- TestClient auto-decompresses gzipped responses, needed special handling in tests
+- URL-encoded path traversal attempts need decoding before validation
+- Streaming decompression with byte ranges requires careful chunk boundary handling
 
 ### ⏳ observe/feat/workflow-event-emission
 **Status**: Not started  
@@ -146,10 +160,10 @@ None yet.
 
 ## Metrics
 
-- **Total estimated effort**: 29-42 hours remaining (was 38-51 hours)
-- **Tasks added**: 4 (fix/async-event-bus-init ✅, feat/inbound-rpc-instrumentation, feat/trace-streaming-endpoint, feat/workflow-event-emission)
+- **Total estimated effort**: 27-39 hours remaining (was 38-51 hours)
+- **Tasks added**: 4 (fix/async-event-bus-init ✅, feat/inbound-rpc-instrumentation, feat/trace-streaming-endpoint ✅, feat/workflow-event-emission)
 - **Total tasks**: 13 (was 11)
-- **Completed**: 4/13 (31%)
+- **Completed**: 5/13 (38%)
 - **Velocity**: ~4 tasks/day based on bootstrap milestone
 - **Blockers encountered**: 1 (AsyncEventBus initialization - now fixed)
 - **Code coverage**: 78% for inspector module
