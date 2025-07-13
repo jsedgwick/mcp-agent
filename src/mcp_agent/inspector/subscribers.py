@@ -202,6 +202,78 @@ async def after_llm_generate(llm, prompt, response, **_kw) -> None:
             pass
 
 
+# RPC hooks
+
+async def before_rpc_request(envelope, transport, **_kw) -> None:
+    """Capture RPC request attributes before sending."""
+    span = trace.get_current_span()
+    if span and span.is_recording():
+        # Set JSON-RPC version
+        span.set_attribute(SpanMeta.JSONRPC_VERSION, envelope.get("jsonrpc", "2.0"))
+        
+        # Set RPC method
+        method = envelope.get("method")
+        if method:
+            span.set_attribute(SpanMeta.RPC_METHOD, method)
+        
+        # Set RPC request ID if present
+        request_id = envelope.get("id")
+        if request_id is not None:
+            span.set_attribute(SpanMeta.RPC_ID, str(request_id))
+        
+        # Set transport type
+        span.set_attribute(SpanMeta.RPC_TRANSPORT, transport)
+        
+        # Set RPC direction (outbound for client session)
+        span.set_attribute(SpanMeta.RPC_DIRECTION, "outbound")
+        
+        # Capture request envelope as JSON (optional debugging attribute)
+        try:
+            request_json = json.dumps(envelope)
+            safe_json_attribute(SpanMeta.RPC_REQUEST_JSON, request_json, span)
+        except Exception:
+            pass
+
+
+async def after_rpc_response(envelope, transport, duration_ms, **_kw) -> None:
+    """Capture RPC response attributes after receiving."""
+    span = trace.get_current_span()
+    if span and span.is_recording():
+        # Set duration
+        span.set_attribute(SpanMeta.RPC_DURATION_MS, int(duration_ms))
+        
+        # Set transport status as connected (successful response)
+        span.set_attribute(SpanMeta.TRANSPORT_STATUS, "connected")
+        
+        # Capture response envelope as JSON (optional debugging attribute)
+        try:
+            response_json = json.dumps(envelope)
+            safe_json_attribute(SpanMeta.RPC_RESPONSE_JSON, response_json, span)
+        except Exception:
+            pass
+
+
+async def error_rpc_request(envelope, transport, exc, **_kw) -> None:
+    """Capture RPC error information."""
+    span = trace.get_current_span()
+    if span and span.is_recording():
+        # Set error status
+        span.set_attribute(SpanMeta.STATUS_CODE, "error")
+        span.set_attribute(SpanMeta.ERROR_MESSAGE, str(exc))
+        
+        # Set transport status and error code based on error type
+        exc_str_lower = str(exc).lower()
+        if "timeout" in exc_str_lower or "timed out" in exc_str_lower:
+            span.set_attribute(SpanMeta.TRANSPORT_STATUS, "disconnected")
+            span.set_attribute(SpanMeta.ERROR_CODE, "TIMEOUT")
+        elif "connection" in exc_str_lower:
+            span.set_attribute(SpanMeta.TRANSPORT_STATUS, "disconnected")
+            span.set_attribute(SpanMeta.ERROR_CODE, type(exc).__name__)
+        else:
+            span.set_attribute(SpanMeta.TRANSPORT_STATUS, "error")
+            span.set_attribute(SpanMeta.ERROR_CODE, type(exc).__name__)
+
+
 def register_all_subscribers() -> None:
     """
     Register all inspector hook subscribers with the instrumentation system.
@@ -229,6 +301,11 @@ def register_all_subscribers() -> None:
     # LLM hooks (complement existing provider hooks)
     instrument.register("before_llm_generate", before_llm_generate)
     instrument.register("after_llm_generate", after_llm_generate)
+    
+    # RPC hooks
+    instrument.register("before_rpc_request", before_rpc_request)
+    instrument.register("after_rpc_response", after_rpc_response)
+    instrument.register("error_rpc_request", error_rpc_request)
 
 
 def unregister_all_subscribers() -> None:
@@ -257,3 +334,8 @@ def unregister_all_subscribers() -> None:
     # LLM hooks
     instrument.unregister("before_llm_generate", before_llm_generate)
     instrument.unregister("after_llm_generate", after_llm_generate)
+    
+    # RPC hooks
+    instrument.unregister("before_rpc_request", before_rpc_request)
+    instrument.unregister("after_rpc_response", after_rpc_response)
+    instrument.unregister("error_rpc_request", error_rpc_request)

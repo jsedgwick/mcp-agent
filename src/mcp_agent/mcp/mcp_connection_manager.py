@@ -166,6 +166,9 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
         transport_context = server_conn._transport_context_factory()
 
         async with transport_context as (read_stream, write_stream, *extras):
+            # Build a session
+            server_conn.create_session(read_stream, write_stream)
+            
             # If the transport provides a session ID callback (streamable_http does),
             # store it in the server connection
             if (
@@ -174,9 +177,6 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
                 and isinstance(server_conn.session, MCPAgentClientSession)
             ):
                 server_conn.session.set_session_id_callback(extras[0])
-
-            # Build a session
-            server_conn.create_session(read_stream, write_stream)
 
             async with server_conn.session:
                 # Initialize the session

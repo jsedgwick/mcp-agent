@@ -1,7 +1,8 @@
 # Milestone 1-bootstrap: Progress Tracker
 
 **Last Updated**: 2025-07-13  
-**Overall Progress**: 83% (10/12 tasks completed)  
+**Overall Progress**: 100% (12/12 tasks completed) ✅  
+**Status**: COMPLETE  
 **Note**: Additional tasks identified during audit to ensure complete foundation
 
 ## Completed Tasks
@@ -259,24 +260,36 @@
 - gzip.open() in append mode works perfectly for incremental writes
 - Path expansion is critical for cross-platform compatibility
 
-### ⏳ bootstrap/feat/rpc-span-enrichment
-**Status**: Not started  
-**Priority**: Medium  
-**Dependencies**: rpc-instrumentation, telemetry-span-attributes  
-**Estimated effort**: 2-3 hours  
-**Why added**: Capture RPC attributes in spans
+### ✅ bootstrap/feat/rpc-span-enrichment
+**Completed**: 2025-07-13  
+**Commit**: `feat(rpc): add RPC span enrichment subscribers`  
+
+**What was done**:
+- Added RPC attribute constants to SpanMeta following telemetry-spec.md section 3.5
+- Implemented subscribers for before_rpc_request, after_rpc_response, error_rpc_request hooks
+- Captured all required attributes: JSON-RPC version, method, ID, transport, duration, direction
+- Added optional debugging attributes: request/response JSON (with 30KB limit)
+- Proper error handling with transport status and error codes (special case for timeout)
+- Comprehensive tests covering all scenarios (8 tests total, all passing)
+
+**Deviations from plan**: None - implementation follows spec exactly
+
+**Lessons learned**: 
+- Notifications don't have IDs, so ID capture must be conditional
+- Transport status should be "disconnected" for timeout/connection errors
+- The hook-based pattern provides clean separation from core RPC code
 
 ## Metrics
 
 - **Initial completion**: 6/6 tasks (100%)
-- **After audit**: 11/12 tasks (92%)
+- **After audit**: 12/12 tasks (100%)
 - **Additional tasks identified**: 6
-- **Velocity**: 3.7 tasks/day (11 tasks in 3 days)
-- **Blockers encountered**: 2 (TracerProvider singleton, MCP type validation)
+- **Velocity**: 4 tasks/day (12 tasks in 3 days)
+- **Blockers encountered**: 3 (TracerProvider singleton, MCP type validation, MCP session bug)
 - **Code coverage**: 78% for inspector module
-- **Lines of code**: ~1600 (including tests)
-- **Tests written**: 65 total (all passing)
-- **Estimated completion**: <1 day for remaining 1 task
+- **Lines of code**: ~1800 (including tests)
+- **Tests written**: 73 total (all passing)
+- **Completion date**: 2025-07-13
 
 ## Risks & Issues
 
