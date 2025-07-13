@@ -1,6 +1,6 @@
 # Milestone 2-observe: Dogfood MVP
 
-**Status**: Not Started  
+**Status**: In Progress  
 **Target**: Basic observability for real mcp-agent workflows  
 **Dependencies**: 1-bootstrap completed
 
@@ -18,10 +18,56 @@ The observe milestone delivers immediate debugging value by making mcp-agent wor
 - Paused workflows show clear status indicators
 - Zero external dependencies maintained
 
+## Optimized Execution Order
+
+Based on analysis of dependencies and user value delivery, tasks should be executed in this order:
+
+### Phase 1: Enable Live Data (Days 1-2)
+1. **observe/feat/workflow-event-emission** (1 day) - Make sessions appear live
+2. **observe/feat/ui-session-navigator** (1.5 days) - Basic UI with session list + SSE
+
+### Phase 2: Make UI Useful (Days 3-4)  
+3. **observe/feat/trace-streaming-endpoint** (0.5 day) - Already mostly complete
+4. **observe/feat/telemetry-full-enrichment** (1 day) - Rich span attributes
+5. **Simple span tree viewer** (0.5 day) - Add to navigator UI
+
+### Phase 3: Validate & Enhance (Days 5-6)
+6. **observe/test/e2e-playwright-suite** (0.5 day) - Validate MVP
+7. **observe/feat/workflow-pause-signals** (0.5 day) - Show PAUSED status
+8. **observe/feat/sessions-inbound-mcp** + **inbound-rpc-instrumentation** (1 day)
+
+### Phase 4: Polish (Day 6)
+9. **observe/test/performance-baseline** (0.25 day)
+10. **observe/docs/hook-integration** + **api-reference-stubs** (0.25 day)
+
+## Task Completion Status
+
+**Completed Tasks** (5/13):
+- ✅ observe/fix/async-event-bus-init
+- ✅ observe/feat/sessions-unified-list (backend only)
+- ✅ observe/feat/trace-file-exporter
+- ✅ observe/feat/events-sse-stream (infrastructure only)
+- ✅ observe/feat/trace-streaming-endpoint
+
+**Partially Complete**:
+- 🔄 observe/feat/telemetry-full-enrichment (basic hooks done, needs completion)
+- 🔄 observe/feat/ui-session-navigator (React scaffold only)
+
+**Not Started** (6/13):
+- ❌ observe/feat/workflow-event-emission
+- ❌ observe/feat/sessions-inbound-mcp
+- ❌ observe/feat/inbound-rpc-instrumentation
+- ❌ observe/feat/workflow-pause-signals
+- ❌ observe/test/e2e-playwright-suite
+- ❌ observe/test/performance-baseline
+- ❌ observe/docs/hook-integration
+- ❌ observe/docs/api-reference-stubs
+
 ## Tasks
 
 ### observe/fix/async-event-bus-init
 **Priority**: Critical  
+**Status**: ✅ COMPLETED  
 **Description**: Fix AsyncEventBus initialization for proper event streaming
 
 **Acceptance Criteria**:
@@ -78,6 +124,7 @@ def test_hook_overhead(benchmark):
 
 ### observe/feat/sessions-unified-list
 **Priority**: High  
+**Status**: ✅ COMPLETED (backend)  
 **Description**: Unified endpoint for all active sessions
 
 **Acceptance Criteria**:
@@ -97,6 +144,7 @@ def test_hook_overhead(benchmark):
 
 ### observe/feat/trace-file-exporter
 **Priority**: High  
+**Status**: ✅ COMPLETED  
 **Description**: Stream traces from gzipped JSONL files
 
 **Acceptance Criteria**:
@@ -118,6 +166,7 @@ async with aiofiles.open(trace_path, 'rb') as f:
 
 ### observe/feat/events-sse-stream
 **Priority**: High  
+**Status**: ✅ COMPLETED (infrastructure)  
 **Description**: Real-time event streaming via Server-Sent Events
 
 **Acceptance Criteria**:
@@ -272,6 +321,7 @@ class InboundRPCInstrumentationMiddleware:
 
 ### observe/feat/trace-streaming-endpoint
 **Priority**: High  
+**Status**: ✅ COMPLETED  
 **Description**: HTTP endpoint for streaming trace files  
 **Dependencies**: trace-file-exporter
 

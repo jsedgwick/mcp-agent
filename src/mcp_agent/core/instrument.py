@@ -9,7 +9,7 @@ See docs/inspector/instrumentation-hooks.md for the formal contract.
 """
 
 import logging
-from collections import defaultdict
+import threading
 from inspect import iscoroutinefunction
 from typing import Any, Awaitable, Callable, Dict, List
 
@@ -20,8 +20,9 @@ _logger = logging.getLogger("mcp.instrument")
 # Type aliases
 _Callback = Callable[..., Any | Awaitable[Any]]
 
-# Global hook registry
-_hooks: Dict[str, List[_Callback]] = defaultdict(list)
+# Global hook registry with thread safety
+_hooks: Dict[str, List[_Callback]] = {}
+_hooks_lock = threading.RLock()
 
 
 def register(name: str, fn: _Callback) -> None:
@@ -30,6 +31,8 @@ def register(name: str, fn: _Callback) -> None:
     The callback function will be invoked when the named hook is emitted.
     If the callback is a coroutine function, it will be awaited.
     The return value is always ignored.
+
+    Thread-safe: Can be called from any thread.
 
     Args:
         name: The hook name to subscribe to (e.g., "before_llm_generate")
@@ -44,7 +47,10 @@ def register(name: str, fn: _Callback) -> None:
         ...     await log_tool_call(tool_name, args)
         >>> register("before_tool_call", async_callback)
     """
-    _hooks[name].append(fn)
+    with _hooks_lock:
+        if name not in _hooks:
+            _hooks[name] = []
+        _hooks[name].append(fn)
 
 
 def unregister(name: str, fn: _Callback) -> None:
@@ -52,6 +58,8 @@ def unregister(name: str, fn: _Callback) -> None:
 
     This function is idempotent - calling it multiple times or with
     a callback that was never registered will not raise an error.
+
+    Thread-safe: Can be called from any thread.
 
     Args:
         name: The hook name to unsubscribe from
@@ -62,9 +70,10 @@ def unregister(name: str, fn: _Callback) -> None:
         >>> register("before_llm_generate", my_callback)
         >>> unregister("before_llm_generate", my_callback)
     """
-    callbacks = _hooks.get(name, [])
-    if fn in callbacks:
-        callbacks.remove(fn)
+    with _hooks_lock:
+        callbacks = _hooks.get(name, [])
+        if fn in callbacks:
+            callbacks.remove(fn)
 
 
 async def _emit(name: str, *args: Any, **kwargs: Any) -> None:
@@ -75,6 +84,8 @@ async def _emit(name: str, *args: Any, **kwargs: Any) -> None:
 
     If a callback raises an exception, it is logged and swallowed to ensure
     that instrumentation never breaks application code.
+
+    Thread-safe: Makes a snapshot of callbacks to avoid iteration issues.
 
     Note: This function is private and should only be called by mcp-agent
     core code. External code should use register() to observe events.
@@ -89,14 +100,15 @@ async def _emit(name: str, *args: Any, **kwargs: Any) -> None:
         >>> await _emit("before_llm_generate", llm=self, prompt=prompt)
     """
     # Fast path: skip if no subscribers
-    # Direct dict lookup without .get() for performance
-    if name not in _hooks:
-        return
+    # Use get() to avoid creating empty lists in defaultdict
+    with _hooks_lock:
+        callbacks = _hooks.get(name)
+        if not callbacks:
+            return
+        # Make a copy to avoid issues if callbacks are modified during iteration
+        callbacks = list(callbacks)
 
-    callbacks = _hooks[name]
-    if not callbacks:
-        return
-
+    # Release lock before executing callbacks to avoid deadlocks
     for cb in callbacks:
         try:
             if iscoroutinefunction(cb):

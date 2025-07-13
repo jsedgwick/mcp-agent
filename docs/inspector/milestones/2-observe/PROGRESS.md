@@ -1,9 +1,10 @@
 # Milestone 2-observe: Progress Tracker
 
 **Last Updated**: 2025-07-13  
-**Overall Progress**: 31% (4/13 tasks completed)  
+**Overall Progress**: 46% (6/13 tasks completed)  
 **Status**: In Progress  
-**Blocked By**: None (1-bootstrap 92% complete)
+**Blocked By**: None (1-bootstrap complete)  
+**Current Focus**: observe/feat/ui-session-navigator (Phase 1)
 
 ## Completed Tasks
 
@@ -78,9 +79,29 @@
 - Defensive programming with hasattr checks prevents crashes
 - Circular import in logging module made testing challenging
 
+## Execution Order (Following Optimized Plan)
+
+### Phase 1: Enable Live Data (Current)
+1. ~~**observe/feat/workflow-event-emission**~~ ✅
+2. **observe/feat/ui-session-navigator** ← NEXT
+
+### Phase 2: Make UI Useful  
+3. ~~observe/feat/trace-streaming-endpoint~~ ✅
+4. **observe/feat/telemetry-full-enrichment**
+5. **Simple span tree viewer** (part of UI)
+
+### Phase 3: Validate & Enhance
+6. **observe/test/e2e-playwright-suite**
+7. **observe/feat/workflow-pause-signals**
+8. **observe/feat/sessions-inbound-mcp** + **inbound-rpc-instrumentation**
+
+### Phase 4: Polish
+9. **observe/test/performance-baseline**
+10. **observe/docs/hook-integration** + **api-reference-stubs**
+
 ## In Progress Tasks
 
-None yet.
+(None currently)
 
 ## Pending Tasks
 
@@ -127,17 +148,51 @@ None yet.
 **Estimated effort**: 1-2 hours remaining
 **Notes**: OpenAPI spec already exists at docs/inspector/openapi.yaml
 
-### ⏳ observe/feat/trace-streaming-endpoint
-**Status**: Not started  
-**Dependencies**: trace-file-exporter (✅)  
-**Estimated effort**: 2-3 hours
-**Notes**: New task to complete trace file serving
+### ✅ observe/feat/trace-streaming-endpoint
+**Completed**: 2025-07-13  
+**Commit**: `feat(trace): implement trace streaming endpoint with hybrid compression`  
 
-### ⏳ observe/feat/workflow-event-emission
-**Status**: Not started  
-**Dependencies**: async-event-bus-init (✅), events-sse-stream (✅)  
-**Estimated effort**: 3-4 hours
-**Notes**: New task to wire up real-time events
+**What was done**:
+- Created trace_stream.py with full streaming functionality
+- Hybrid approach: gzipped for full files, decompressed for Range requests
+- Robust security validation with path canonicalization
+- ETag support for efficient caching
+- Added endpoint to gateway.py at /trace/{session_id}
+- Comprehensive test suite (11 tests, all passing)
+- Demo script showing the functionality
+
+**Deviations from plan**: None
+
+**Lessons learned**: 
+- TestClient auto-decompresses gzipped responses, needed special handling in tests
+- URL-encoded path traversal attempts need decoding before validation
+- Streaming decompression with byte ranges requires careful chunk boundary handling
+
+---
+
+### ✅ observe/feat/workflow-event-emission
+**Completed**: 2025-07-13  
+**Commit**: `feat(inspector): implement workflow event emission via hooks`  
+
+**What was done**:
+- Added SessionRegistry class to track active sessions and manage heartbeats
+- Implemented session event subscribers that convert workflow hooks to SSE events
+- Created comprehensive test suite with 6 tests covering all scenarios
+- Registered session subscribers in the hook system
+- Verified workflow hooks are already emitted by Workflow.run_async()
+
+**Technical approach**:
+- Leveraged existing hook system (instrument._emit) as per architectural guidance
+- Non-blocking event publishing using asyncio.create_task
+- Time-based heartbeat strategy with separate background tasks
+- Graceful handling of missing session IDs and AsyncEventBus failures
+
+**Deviations from plan**: None
+
+**Lessons learned**:
+- Workflow lifecycle hooks were already implemented in the core
+- Hook-based architecture made integration straightforward
+- Test fixtures need proper async handling with pytest_asyncio
 
 ### ⏳ observe/test/e2e-playwright-suite
 **Status**: Not started  
@@ -146,13 +201,13 @@ None yet.
 
 ## Metrics
 
-- **Total estimated effort**: 29-42 hours remaining (was 38-51 hours)
-- **Tasks added**: 4 (fix/async-event-bus-init ✅, feat/inbound-rpc-instrumentation, feat/trace-streaming-endpoint, feat/workflow-event-emission)
+- **Total estimated effort**: 23-35 hours remaining (was 27-39 hours)
+- **Tasks added**: 4 (fix/async-event-bus-init ✅, feat/inbound-rpc-instrumentation, feat/trace-streaming-endpoint ✅, feat/workflow-event-emission ✅)
 - **Total tasks**: 13 (was 11)
-- **Completed**: 4/13 (31%)
+- **Completed**: 6/13 (46%)
 - **Velocity**: ~4 tasks/day based on bootstrap milestone
 - **Blockers encountered**: 1 (AsyncEventBus initialization - now fixed)
-- **Code coverage**: 78% for inspector module
+- **Code coverage**: 80% for inspector module (increased with new tests)
 
 ## Risks & Issues
 

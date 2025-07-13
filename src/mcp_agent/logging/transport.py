@@ -376,6 +376,10 @@ class AsyncEventBus:
 
     async def emit(self, event: Event):
         """Emit an event to all listeners and transport."""
+        # Auto-initialize queue if not already done
+        if not hasattr(self, '_queue') or self._queue is None:
+            self.init_queue()
+            
         # Inject current tracing info if available
         span = trace.get_current_span()
         if span.is_recording():

@@ -217,3 +217,124 @@ async def get_active_sessions_from_registry(registry) -> List[SessionMeta]:
     # TODO: Implement when registry is available
     
     return active_sessions
+
+
+class SessionRegistry:
+    """In-memory registry of active sessions with metadata and heartbeat tracking."""
+    
+    def __init__(self):
+        self._data: Dict[str, SessionMeta] = {}
+        self._heartbeat_tasks: Dict[str, asyncio.Task] = {}
+        self._metrics: Dict[str, Dict[str, int]] = {}
+        self._lock = asyncio.Lock()
+    
+    async def add(self, meta: SessionMeta) -> None:
+        """Add a new session to the registry.
+        
+        Args:
+            meta: SessionMeta object to track
+        """
+        async with self._lock:
+            self._data[meta.id] = meta
+            # Initialize metrics for heartbeat tracking
+            self._metrics[meta.id] = {
+                "llm_calls": 0,
+                "tokens": 0,
+                "span_count": 0,
+                "llm_calls_last": 0,
+                "tokens_last": 0,
+                "span_count_last": 0
+            }
+    
+    async def finish(self, session_id: str, status: str, error: Optional[str] = None) -> None:
+        """Mark a session as finished.
+        
+        Args:
+            session_id: Session ID to finish
+            status: Final status ("completed" or "failed")
+            error: Optional error message if failed
+        """
+        async with self._lock:
+            if session_id in self._data:
+                sess = self._data[session_id]
+                sess.status = status
+                sess.ended_at = datetime.utcnow().isoformat()
+                # Add error attribute if provided
+                if error:
+                    setattr(sess, 'error', error)
+                
+                # Cancel heartbeat task if running
+                if session_id in self._heartbeat_tasks:
+                    task = self._heartbeat_tasks[session_id]
+                    if not task.done():
+                        task.cancel()
+                    del self._heartbeat_tasks[session_id]
+    
+    def get(self, session_id: str) -> Optional[SessionMeta]:
+        """Get session metadata by ID.
+        
+        Args:
+            session_id: Session ID to look up
+            
+        Returns:
+            SessionMeta object or None if not found
+        """
+        return self._data.get(session_id)
+    
+    def active_ids(self) -> List[str]:
+        """Get list of active session IDs.
+        
+        Returns:
+            List of session IDs that haven't ended
+        """
+        return [sid for sid, meta in self._data.items() if meta.ended_at is None]
+    
+    def set_heartbeat_task(self, session_id: str, task: asyncio.Task) -> None:
+        """Store reference to heartbeat task for a session.
+        
+        Args:
+            session_id: Session ID
+            task: Asyncio task running the heartbeat loop
+        """
+        self._heartbeat_tasks[session_id] = task
+    
+    def update_metrics(self, session_id: str, llm_calls: int = 0, tokens: int = 0, spans: int = 0) -> Dict[str, int]:
+        """Update metrics and return deltas for heartbeat.
+        
+        Args:
+            session_id: Session ID to update
+            llm_calls: Total LLM calls made
+            tokens: Total tokens used
+            spans: Total span count
+            
+        Returns:
+            Dictionary with delta values
+        """
+        if session_id not in self._metrics:
+            return {"llm_calls_delta": 0, "tokens_delta": 0, "span_count_delta": 0, "current_span_count": 0}
+        
+        metrics = self._metrics[session_id]
+        
+        # Calculate deltas
+        deltas = {
+            "llm_calls_delta": llm_calls - metrics["llm_calls_last"],
+            "tokens_delta": tokens - metrics["tokens_last"],
+            "span_count_delta": spans - metrics["span_count_last"],
+            "current_span_count": spans
+        }
+        
+        # Update last values
+        metrics["llm_calls_last"] = llm_calls
+        metrics["tokens_last"] = tokens
+        metrics["span_count_last"] = spans
+        
+        # Update totals
+        metrics["llm_calls"] = llm_calls
+        metrics["tokens"] = tokens
+        metrics["span_count"] = spans
+        
+        return deltas
+
+
+# Create singleton registry instance
+session_registry = SessionRegistry()

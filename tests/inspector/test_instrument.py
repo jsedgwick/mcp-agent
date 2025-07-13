@@ -220,3 +220,36 @@ class TestInstrumentHookBus:
         assert captured_events[0]["tool_name"] == "search"
         assert captured_events[1]["event"] == "after_tool_call"
         assert captured_events[1]["result"] == {"hits": 5}
+
+    @pytest.mark.asyncio
+    async def test_callback_self_unregister(self) -> None:
+        """Test that a callback can safely unregister itself during execution."""
+        call_count = 0
+        other_calls = []
+
+        def self_unregistering_callback(**kwargs: Any) -> None:
+            nonlocal call_count
+            call_count += 1
+            # Unregister itself during execution
+            instrument.unregister("test_hook", self_unregistering_callback)
+
+        def regular_callback(**kwargs: Any) -> None:
+            other_calls.append(1)
+
+        # Register multiple callbacks
+        instrument.register("test_hook", self_unregistering_callback)
+        instrument.register("test_hook", regular_callback)
+        instrument.register("test_hook", regular_callback)  # Register twice
+
+        # Emit event - should not raise ValueError
+        await instrument._emit("test_hook")
+
+        # Verify self-unregistering callback was called once
+        assert call_count == 1
+        # Verify other callbacks were still called
+        assert len(other_calls) == 2
+
+        # Emit again - self-unregistering callback should not be called
+        await instrument._emit("test_hook")
+        assert call_count == 1  # Still 1
+        assert len(other_calls) == 4  # Two more calls

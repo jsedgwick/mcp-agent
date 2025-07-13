@@ -69,6 +69,23 @@ class SpanMeta:
     ERROR_CODE: Final[str] = "mcp.error.code"
     ERROR_MESSAGE: Final[str] = "mcp.error.message"
     STOP_REASON: Final[str] = "mcp.stop_reason"
+    
+    # RPC Wire attributes (from telemetry-spec.md section 3.5)
+    JSONRPC_VERSION: Final[str] = "mcp.jsonrpc.version"
+    RPC_METHOD: Final[str] = "mcp.rpc.method"
+    RPC_ID: Final[str] = "mcp.rpc.id"
+    RPC_REQUEST_JSON: Final[str] = "mcp.rpc.request_json"
+    RPC_RESPONSE_JSON: Final[str] = "mcp.rpc.response_json"
+    RPC_DURATION_MS: Final[str] = "mcp.rpc.duration_ms"
+    RPC_RETRY_COUNT: Final[str] = "mcp.rpc.retry_count"
+    RPC_TRANSPORT: Final[str] = "mcp.rpc.transport"
+    RPC_SERVER_URI: Final[str] = "mcp.rpc.server_uri"
+    RPC_DIRECTION: Final[str] = "mcp.rpc.direction"
+    
+    # Transport Health attributes
+    TRANSPORT_STATUS: Final[str] = "mcp.transport.status"
+    TRANSPORT_RECONNECT_COUNT: Final[str] = "mcp.transport.reconnect_count"
+    TRANSPORT_CONFIG_JSON: Final[str] = "mcp.transport.config_json"
 
 
 def truncate_attribute(value: str, max_size: int = SpanMeta.MAX_ATTRIBUTE_SIZE) -> tuple[str, bool]:
