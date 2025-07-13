@@ -5,6 +5,7 @@ from datetime import timedelta
 import asyncio
 import sys
 from contextlib import asynccontextmanager
+import uuid
 
 from mcp import ServerSession
 from mcp_agent.core.context import Context, initialize_context, cleanup_context
@@ -63,6 +64,8 @@ class MCPApp:
         signal_notification: Optional[SignalWaitCallback] = None,
         upstream_session: Optional["ServerSession"] = None,
         model_selector: ModelSelector = None,
+        # --> ADD THIS NEW PARAMETER
+        session_id: Optional[str] = None,
     ):
         """
         Initialize the application with a name and optional settings.
@@ -79,6 +82,10 @@ class MCPApp:
         """
         self.name = name
         self.description = description or "MCP Agent Application"
+        
+        # --> ADD THIS BLOCK TO GENERATE THE SESSION ID AT CONSTRUCTION TIME
+        # This is the key change to resolve the race condition.
+        self._session_id = session_id or str(uuid.uuid4())
 
         # We use these to initialize the context in initialize()
         if settings is None:
@@ -183,6 +190,8 @@ class MCPApp:
             decorator_registry=self._decorator_registry,
             signal_registry=self._signal_registry,
             store_globally=True,
+            # --> PASS THE SESSION_ID HERE
+            session_id=self._session_id,
         )
 
         # Store the app-specific tracer provider

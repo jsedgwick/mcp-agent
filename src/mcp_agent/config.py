@@ -4,8 +4,9 @@ for the application configuration.
 """
 
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
+from mcp_agent.inspector.settings import InspectorSettings
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -422,6 +423,9 @@ class Settings(BaseSettings):
     usage_telemetry: UsageTelemetrySettings | None = UsageTelemetrySettings()
     """Usage tracking settings for the MCP Agent application"""
 
+    inspector: Optional[Dict[str, Any]] = None
+    """Inspector settings for the MCP Agent application."""
+
     @classmethod
     def find_config(cls) -> Path | None:
         """Find the config file in the current directory or parent directories."""
@@ -511,7 +515,10 @@ def get_settings(config_path: str | None = None) -> Settings:
                     yaml_secrets = yaml.safe_load(f) or {}
                     merged_settings = deep_merge(merged_settings, yaml_secrets)
 
-        _settings = Settings(**merged_settings)
+        if "inspector" in yaml_settings and yaml_settings["inspector"] is not None:
+            yaml_settings["inspector"] = InspectorSettings(**yaml_settings["inspector"])
+        
+        _settings = Settings(**yaml_settings)
         return _settings
 
     # No valid config found anywhere

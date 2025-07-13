@@ -168,6 +168,8 @@ async def initialize_context(
     decorator_registry: Optional[DecoratorRegistry] = None,
     signal_registry: Optional[SignalRegistry] = None,
     store_globally: bool = False,
+    # --> ADD THIS NEW PARAMETER
+    session_id: Optional[str] = None,
 ):
     """
     Initialize the global application context.
@@ -185,7 +187,8 @@ async def initialize_context(
         config, context.executor
     )
 
-    context.session_id = str(context.executor.uuid())
+    # --> USE THE PASSED-IN SESSION ID, OR FALLBACK TO EXECUTOR UUID
+    context.session_id = session_id or str(context.executor.uuid())
 
     # Configure logging and telemetry
     context.tracing_config = await configure_otel(config, context.session_id)

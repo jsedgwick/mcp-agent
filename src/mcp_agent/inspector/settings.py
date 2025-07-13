@@ -2,7 +2,8 @@
 from pathlib import Path
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class StorageSettings(BaseModel):
@@ -77,7 +78,7 @@ class DebugSettings(BaseModel):
     )
 
 
-class InspectorSettings(BaseModel):
+class InspectorSettings(BaseSettings):
     """Top-level Inspector configuration.
     
     Configuration precedence (later overrides earlier):
@@ -150,49 +151,19 @@ class InspectorSettings(BaseModel):
 
 
 def load_inspector_settings(
-    config_dict: Optional[dict] = None,
-    env_override: bool = True
+    config_dict: Optional[dict] = None
 ) -> InspectorSettings:
     """Load Inspector settings from multiple sources.
     
     Args:
         config_dict: Dictionary from YAML config file (inspector: section)
-        env_override: Whether to apply environment variable overrides
         
     Returns:
         Resolved InspectorSettings with all sources merged
     """
-    # Start with defaults
-    settings_dict = {}
-    
-    # Apply config file values if provided
+    # Pydantic's BaseSettings will automatically load from environment variables
+    # if they are prefixed with `INSPECTOR_`.
+    # It will also correctly merge the dictionary from the config file.
     if config_dict:
-        settings_dict.update(config_dict)
-    
-    # Create settings
-    if env_override:
-        # Use Pydantic's built-in environment variable support
-        # This requires using Settings from pydantic_settings
-        import os
-        
-        # For now, manually merge env vars for key settings
-        if os.getenv("INSPECTOR_ENABLED"):
-            settings_dict["enabled"] = os.getenv("INSPECTOR_ENABLED", "").lower() in ("true", "1", "yes")
-        if os.getenv("INSPECTOR_PORT"):
-            settings_dict["port"] = int(os.getenv("INSPECTOR_PORT"))
-        if os.getenv("INSPECTOR_HOST"):
-            settings_dict["host"] = os.getenv("INSPECTOR_HOST")
-        
-        # Handle nested settings
-        if os.getenv("INSPECTOR_STORAGE__TRACES_DIR"):
-            settings_dict.setdefault("storage", {})["traces_dir"] = os.getenv("INSPECTOR_STORAGE__TRACES_DIR")
-        if os.getenv("INSPECTOR_STORAGE__MAX_TRACE_SIZE"):
-            settings_dict.setdefault("storage", {})["max_trace_size"] = int(os.getenv("INSPECTOR_STORAGE__MAX_TRACE_SIZE"))
-        if os.getenv("INSPECTOR_SECURITY__AUTH_ENABLED"):
-            settings_dict.setdefault("security", {})["auth_enabled"] = os.getenv("INSPECTOR_SECURITY__AUTH_ENABLED", "").lower() in ("true", "1", "yes")
-        if os.getenv("INSPECTOR_DEBUG__DEBUG"):
-            settings_dict.setdefault("debug", {})["debug"] = os.getenv("INSPECTOR_DEBUG__DEBUG", "").lower() in ("true", "1", "yes")
-    
-    settings = InspectorSettings(**settings_dict)
-    
-    return settings
+        return InspectorSettings(**config_dict)
+    return InspectorSettings()

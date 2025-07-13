@@ -379,15 +379,15 @@ class OpenAIAugmentedLLM(
                         )
                         span.set_attributes(response_data)
 
-            # Emit after_llm_generate hook on success
-            await instrument._emit(
-                "after_llm_generate",
-                llm=self,
-                prompt=original_prompt,
-                response=responses
-            )
-            
-            return responses
+                # Emit after_llm_generate hook on success
+                await instrument._emit(
+                    "after_llm_generate",
+                    llm=self,
+                    prompt=original_prompt,
+                    response=responses
+                )
+                
+                return responses
         except Exception as e:
             # Emit error_llm_generate hook on exception
             await instrument._emit(

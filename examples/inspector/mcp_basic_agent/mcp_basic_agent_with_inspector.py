@@ -16,6 +16,7 @@ import asyncio
 import os
 import time
 
+# The mcp_agent library now automatically handles asyncio compatibility
 from mcp_agent.app import MCPApp
 from mcp_agent.agents.agent import Agent
 from mcp_agent.workflows.llm.augmented_llm import RequestParams

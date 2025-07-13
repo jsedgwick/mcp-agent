@@ -185,7 +185,15 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
                 # Wait until we're asked to shut down
                 await server_conn.wait_for_shutdown_request()
     except Exception as exc:
+        # --- START MODIFICATION ---
         import traceback
+        import sys
+
+        # Directly print to stderr to bypass the custom logger
+        print(f"\n\n[INSPECTOR DEBUG] RAW EXCEPTION IN LIFECYCLE TASK FOR '{server_name}':", file=sys.stderr)
+        traceback.print_exc()
+        print("[INSPECTOR DEBUG] END RAW EXCEPTION\n\n", file=sys.stderr)
+        # --- END MODIFICATION ---
 
         if hasattr(
             exc, "exceptions"

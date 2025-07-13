@@ -1,11 +1,14 @@
 from datetime import datetime
 from os import linesep
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Sequence, Optional
 import uuid
+import re
+import threading
 
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
+from opentelemetry.sdk.resources import Resource
 
 from mcp_agent.config import TracePathSettings
 from mcp_agent.logging.logger import get_logger
@@ -29,48 +32,72 @@ class FileSpanExporter(SpanExporter):
     ):
         self.formatter = formatter
         self.service_name = service_name
-        self.session_id = session_id or str(uuid.uuid4())
+        # --- START MODIFICATION ---
+        # Do NOT resolve session_id or filepath at init time.
         self.path_settings = path_settings or TracePathSettings()
         self.custom_path = custom_path
-        self.filepath = Path(self._get_trace_filename())
-        # Create directory if it doesn't exist
-        self.filepath.parent.mkdir(parents=True, exist_ok=True)
+        self._filepath: Optional[Path] = None
+        self._lock = threading.Lock()
+        # --- END MODIFICATION ---
 
-    def _get_trace_filename(self) -> str:
-        """Generate a trace filename based on the path settings."""
-        # If custom_path is provided, use it directly
-        if self.custom_path:
-            # Expand tilde in custom path
-            return str(Path(self.custom_path).expanduser())
+    def _get_or_create_filepath(self, span_resource: Resource) -> Path:
+        """
+        Lazily determines the file path on the first export, ensuring session_id is available.
+        """
+        with self._lock:
+            if self._filepath:
+                return self._filepath
 
-        path_pattern = self.path_settings.path_pattern
-        unique_id_type = self.path_settings.unique_id
+            # If custom_path is provided, use it directly
+            if self.custom_path:
+                self._filepath = Path(self.custom_path).expanduser()
+                self._filepath.parent.mkdir(parents=True, exist_ok=True)
+                return self._filepath
+            
+            # Extract session.id from the span's resource attributes
+            raw_session_id = span_resource.attributes.get("session.id", str(uuid.uuid4()))
+            
+            # --- NEW: Sanitize the session ID ---
+            sanitized_session_id = re.sub(r'[^a-zA-Z0-9_-]', '_', raw_session_id)
+            
+            path_pattern = self.path_settings.path_pattern
+            unique_id_type = self.path_settings.unique_id
+            
+            if unique_id_type == "session_id":
+                unique_id = sanitized_session_id
+            else: # "timestamp"
+                now = datetime.now()
+                time_format = self.path_settings.timestamp_format
+                unique_id = now.strftime(time_format)
 
-        if unique_id_type == "session_id":
-            unique_id = self.session_id
-        elif unique_id_type == "timestamp":
-            now = datetime.now()
-            time_format = self.path_settings.timestamp_format
-            unique_id = now.strftime(time_format)
-        else:
-            raise ValueError(
-                f"Invalid unique_id type: {unique_id_type}. Expected 'session_id' or 'timestamp'."
-            )
+            path = path_pattern.replace("{unique_id}", unique_id)
+            self._filepath = Path(path).expanduser()
+            self._filepath.parent.mkdir(parents=True, exist_ok=True)
+            return self._filepath
 
-        # Replace unique_id and expand tilde
-        path = path_pattern.replace("{unique_id}", unique_id)
-        return str(Path(path).expanduser())
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        logger.info("EXPORTING SPANS TO FILE", data={"spans": spans})
+        if not spans:
+            return SpanExportResult.SUCCESS
+        
+        # --- START MODIFICATION ---
+        # Ensure the filepath is determined using the context from the first span.
         try:
-            with open(self.filepath, "a", encoding="utf-8") as f:
+            filepath = self._get_or_create_filepath(spans[0].resource)
+        except Exception as e:
+            logger.error(f"Failed to determine trace file path: {e}")
+            return SpanExportResult.FAILURE
+        # --- END MODIFICATION ---
+
+        # (The rest of the export method remains largely the same, but uses `filepath`)
+        try:
+            with open(filepath, "a", encoding="utf-8") as f:
                 for span in spans:
                     f.write(self.formatter(span))
-                    f.flush()  # Ensure writing to disk
+                f.flush()
             return SpanExportResult.SUCCESS
         except Exception as e:
-            logger.error(f"Failed to export span to {self.filepath}: {e}")
+            logger.error(f"Failed to export span to {filepath}: {e}")
             return SpanExportResult.FAILURE
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
