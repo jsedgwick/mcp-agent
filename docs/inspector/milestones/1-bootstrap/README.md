@@ -8,6 +8,8 @@
 
 Bootstrap milestone establishes the foundational structure for mcp-agent-inspector with zero external dependencies. After completion, developers can import and mount the inspector, though functionality will be minimal.
 
+**Important Architectural Context**: The mcp-agent codebase currently has direct OpenTelemetry integration throughout. This milestone introduces a new hook-based instrumentation system that will eventually replace the direct OTel calls. During the transition, both systems will coexist. All new instrumentation MUST use the hook-based pattern.
+
 ## Success Criteria
 
 - Instrumentation hook bus implemented in mcp-agent core
@@ -41,6 +43,57 @@ src/mcp_agent/llm/augmented.py      # Add _emit() calls
 ```
 
 **Reference**: Follow contract in [instrumentation-hooks.md](../../instrumentation-hooks.md)
+
+---
+
+### bootstrap/feat/configuration-system
+**Priority**: Critical  
+**Description**: Implement the core configuration system for Inspector.  
+**Dependencies**: bootstrap/feat/inspector-package-skeleton
+
+**Acceptance Criteria**:
+- A new top-level `inspector:` section is supported in `mcp-agent.config.yaml`.
+- A comprehensive `InspectorSettings` Pydantic model is created, covering all core, storage, security, performance, and debug parameters.
+- Configuration loading follows the precedence: Runtime Params > Environment Vars > YAML File > Pydantic Defaults.
+- `inspector.enabled` defaults to `false` to ensure backward compatibility.
+- The main `mcp-agent.config.schema.json` is updated to include the new inspector configuration schema.
+- The `mount()` function is updated to accept and utilize the `InspectorSettings` object.
+
+**Implementation Notes**:
+```python
+# src/mcp_agent/inspector/settings.py
+from pydantic import BaseModel, Field
+from typing import Optional, List
+
+class InspectorStorageSettings(BaseModel):
+    traces_dir: str = Field("~/.mcp_traces", description="Directory for trace files")
+    max_trace_size: int = Field(104857600, description="Max trace file size before rotation (bytes)")
+    retention_days: Optional[int] = Field(None, description="Trace retention period (future)")
+
+class InspectorSecuritySettings(BaseModel):
+    auth_enabled: bool = Field(False, description="Enable authentication")
+    auth_token: Optional[str] = Field(None, description="Session token")
+    cors_origins: List[str] = Field([], description="Allowed CORS origins")
+
+class InspectorPerformanceSettings(BaseModel):
+    sample_rate: float = Field(1.0, description="Span sampling rate")
+    max_sse_clients: int = Field(100, description="Max concurrent SSE connections")
+    file_handle_cache_size: int = Field(50, description="LRU cache size")
+
+class InspectorDebugSettings(BaseModel):
+    debug: bool = Field(False, description="Enable debug mode")
+
+class InspectorSettings(BaseModel):
+    enabled: bool = Field(False, description="Enable Inspector")
+    port: int = Field(7800, description="HTTP server port")
+    host: str = Field("127.0.0.1", description="Binding address")
+    mount_path: str = Field("/_inspector", description="URL prefix")
+    
+    storage: InspectorStorageSettings = Field(default_factory=InspectorStorageSettings)
+    security: InspectorSecuritySettings = Field(default_factory=InspectorSecuritySettings)
+    performance: InspectorPerformanceSettings = Field(default_factory=InspectorPerformanceSettings)
+    debug: InspectorDebugSettings = Field(default_factory=InspectorDebugSettings)
+```
 
 ---
 

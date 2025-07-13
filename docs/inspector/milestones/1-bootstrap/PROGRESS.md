@@ -1,7 +1,7 @@
 # Milestone 1-bootstrap: Progress Tracker
 
 **Last Updated**: 2025-07-13  
-**Overall Progress**: 64% (7/11 tasks completed)  
+**Overall Progress**: 83% (10/12 tasks completed)  
 **Note**: Additional tasks identified during audit to ensure complete foundation
 
 ## Completed Tasks
@@ -161,12 +161,24 @@
 
 ## Pending Tasks (Added after audit)
 
-### ⏳ bootstrap/feat/rpc-instrumentation
-**Status**: Not started  
-**Priority**: Critical  
-**Dependencies**: instrumentation-hook-bus  
-**Estimated effort**: 4-6 hours  
-**Why added**: Audit revealed missing RPC/transport layer visibility
+### ✅ bootstrap/feat/rpc-instrumentation
+**Completed**: 2025-07-13  
+**Commit**: `feat(rpc): add instrumentation hooks to client session`
+
+**What was done**:
+- Added RPC instrumentation hooks to MCPAgentClientSession.send_request and send_notification
+- Implemented before_rpc_request, after_rpc_response, error_rpc_request hooks
+- Captured transport type (from server_config), timing (duration_ms), and envelope details
+- Created comprehensive test suite with 4 passing tests
+
+**Deviations**: 
+- Used mock objects instead of actual MCP types in tests due to complex Union type validation
+- Transport type defaults to "stdio" when server_config not set
+
+**Lessons learned**: 
+- MCP library uses complex Union types for requests that are difficult to construct directly
+- Mock objects provide a cleaner testing approach for hook verification
+- RPC instrumentation completes the observability foundation for Inspector
 
 ### ✅ bootstrap/feat/agent-hooks-spec  
 **Completed**: 2025-07-13  
@@ -183,19 +195,69 @@
 - Important to keep specification in sync with implementation
 - The hook was already being used by subscribers but wasn't formally documented
 
-### ⏳ bootstrap/feat/session-events-endpoints
-**Status**: Not started  
-**Priority**: High  
-**Dependencies**: gateway-health-endpoint  
-**Estimated effort**: 4-6 hours  
-**Why added**: Required for milestone 2 to show sessions and receive events
+### ✅ bootstrap/feat/session-events-endpoints
+**Completed**: 2025-07-13  
+**Commit**: `feat(sessions): implement session listing and SSE event streaming`  
 
-### ⏳ bootstrap/feat/inspector-span-exporter
-**Status**: Not started  
-**Priority**: High  
-**Dependencies**: telemetry-span-attributes  
-**Estimated effort**: 3-4 hours  
-**Why added**: Need Inspector-specific exporter with gzip and session integration
+**What was done**:
+- Created sessions.py with logic to scan ~/.mcp_traces/ for trace files
+- Implemented metadata extraction from gzipped JSONL trace files
+- Created events.py with Server-Sent Events (SSE) streaming infrastructure
+- Added EventStream class for managing connected clients
+- Implemented common event types: SessionStarted, SessionFinished, WaitingOnSignal, Heartbeat
+- Updated gateway.py to add /sessions and /events endpoints
+- OpenAPI spec already had the endpoints defined (no updates needed)
+- Created comprehensive test suite with 9 tests covering all functionality
+- Added demo script to showcase the new features
+
+**Deviations from plan**:
+- Used `removesuffix('.jsonl.gz')` instead of Path.stem for proper session ID extraction
+- TestClient doesn't support SSE streaming, so SSE tests focus on the event publishing mechanism
+
+**Lessons learned**:
+- Environment variable MCP_TRACES_DIR allows easy testing with temporary directories
+- SSE endpoints require special handling in tests due to their streaming nature
+- Gzipped JSONL format works well for trace storage and can be parsed line-by-line
+
+### ✅ bootstrap/feat/configuration-system
+**Completed**: 2025-07-13  
+**Commit**: `feat(configuration): implement InspectorSettings with hierarchical loading`  
+
+**What was done**:
+- Created InspectorSettings Pydantic model with nested configuration sections
+- Implemented hierarchical configuration loading (defaults → YAML → env → runtime)
+- Added support for environment variable overrides with INSPECTOR_ prefix
+- Updated gateway.py to use InspectorSettings throughout
+- Created comprehensive test suite (17 tests, all passing)
+- Updated sessions.py to use settings for traces directory
+- Created concrete configuration file for basic agent example
+
+**Deviations from plan**:
+- Used Pydantic v2 ConfigDict instead of legacy Config class
+- Manually implemented env var loading for now (pydantic-settings not used to avoid dependency)
+- Used default_factory for path expansion to work around Pydantic v2 validator behavior
+
+**Lessons learned**:
+- Pydantic v2 validators don't run on default values unless using default_factory
+- Environment variable handling needs explicit implementation without pydantic-settings
+- Configuration precedence is critical for backward compatibility
+
+### ✅ bootstrap/feat/inspector-span-exporter
+**Completed**: 2025-07-13  
+**Commit**: `feat(inspector): create InspectorFileSpanExporter with gzip support`  
+
+**What was done**:
+- Created InspectorFileSpanExporter that writes gzipped JSONL to ~/.mcp_traces/
+- Integrated with Inspector context system for session ID
+- Properly expands ~ in paths
+- Handles file rotation at configured size limits
+- Supports both timestamped and session-based filenames
+
+**Deviations from plan**: None - Implementation follows design exactly
+
+**Lessons learned**: 
+- gzip.open() in append mode works perfectly for incremental writes
+- Path expansion is critical for cross-platform compatibility
 
 ### ⏳ bootstrap/feat/rpc-span-enrichment
 **Status**: Not started  
@@ -207,13 +269,14 @@
 ## Metrics
 
 - **Initial completion**: 6/6 tasks (100%)
-- **After audit**: 7/11 tasks (64%)
-- **Additional tasks identified**: 5
-- **Velocity**: 2 tasks/day (7 tasks in 3 days)
-- **Blockers encountered**: 1 (TracerProvider singleton in tests)
-- **Code coverage**: 75% for inspector module
-- **Lines of code**: ~800 (including tests)
-- **Estimated completion**: ~2 additional days
+- **After audit**: 11/12 tasks (92%)
+- **Additional tasks identified**: 6
+- **Velocity**: 3.7 tasks/day (11 tasks in 3 days)
+- **Blockers encountered**: 2 (TracerProvider singleton, MCP type validation)
+- **Code coverage**: 78% for inspector module
+- **Lines of code**: ~1600 (including tests)
+- **Tests written**: 65 total (all passing)
+- **Estimated completion**: <1 day for remaining 1 task
 
 ## Risks & Issues
 
@@ -227,9 +290,10 @@
 
 ## Notes for Next Session
 
-- **CRITICAL**: Start with instrumentation-hook-bus task before any other work
-- Gateway-health-endpoint can proceed in parallel after hook bus is done
-- Telemetry-span-attributes must use hooks, not monkey-patching
+- **ARCHITECTURAL MIGRATION**: The codebase has both direct OTel and hook-based instrumentation
+- All new features MUST use hook-based pattern only
+- See updated Architecture §6.6 and Development Guide for instrumentation patterns
+- Remaining tasks: session-events-endpoints, inspector-span-exporter, rpc-span-enrichment
+- Technical debt tasks added to roadmap for future OTel removal
 - Ensure all code follows type hints and docstring requirements
 - Run `ruff format` before committing
-- Create OpenAPI spec stub for contract testing

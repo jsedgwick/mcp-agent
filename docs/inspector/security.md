@@ -6,16 +6,31 @@
 
 This document describes the security architecture and controls for mcp-agent-inspector.
 
-## 1. Security Principles
+## 1. Security Configuration
+
+Key security controls are managed via the `inspector.security` section in `mcp_agent.config.yaml`:
+
+```yaml
+inspector:
+  security:
+    # Enables/disables session token authentication (Default: false, true from M3)
+    auth_enabled: false
+    # Defines the session token. Use secrets management, NOT plaintext.
+    auth_token: "your-secure-token"
+    # Restricts which domains can access the API via CORS.
+    cors_origins: ["https://your-app.com"]
+```
+
+## 2. Security Principles
 
 1. **Defense in Depth**: Multiple layers of security controls
 2. **Least Privilege**: Minimal permissions required for operation
 3. **Secure by Default**: Safe configurations out of the box
 4. **Zero Trust**: Validate all inputs, even from localhost
 
-## 2. Network Security
+## 3. Network Security
 
-### 2.1. Local-Only Binding
+### 3.1. Local-Only Binding
 
 By default, Inspector binds only to localhost:
 
@@ -28,7 +43,7 @@ inspector_config = {
 }
 ```
 
-### 2.2. CORS Configuration
+### 3.2. CORS Configuration
 
 Cross-Origin Resource Sharing is strictly controlled:
 
@@ -42,9 +57,9 @@ cors_config = {
 }
 ```
 
-## 3. Authentication & Authorization
+## 4. Authentication & Authorization
 
-### 3.1. Session Token Authentication (3-understand onwards)
+### 4.1. Session Token Authentication (3-understand onwards)
 
 Starting in 3-understand milestone, session-token authentication is enabled by default:
 

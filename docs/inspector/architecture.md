@@ -249,6 +249,38 @@ class InMemoryWorkflowRegistry:
 
 This same chain applies to any future signal names.
 
+### 6.6. Architectural Migration: From Direct OTel to Hook-Based
+
+**Important Note**: The codebase is currently in transition between two instrumentation approaches:
+
+#### Legacy System (Being Deprecated)
+The existing mcp-agent core contains extensive direct OpenTelemetry integration:
+- `Context` objects hold tracer instances
+- `@telemetry.traced()` decorators throughout the codebase
+- Manual `tracer.start_as_current_span()` calls in core logic
+- Direct coupling between core mcp-agent and OpenTelemetry
+
+#### New System (Hook-Based)
+The Inspector introduces a decoupled approach:
+- Core code emits domain events via `instrument._emit()`
+- Inspector subscribers translate events to OTel spans/attributes
+- Zero OpenTelemetry dependency in core mcp-agent (future goal)
+- Clean separation of concerns
+
+#### Current State
+Both systems are active simultaneously, which creates some redundancy:
+- Core methods create their own spans AND emit hooks
+- Inspector subscribers enrich the same spans created by core
+- This is architectural technical debt that will be addressed
+
+#### Migration Strategy
+1. **New features**: Must use ONLY the hook-based pattern
+2. **Existing code**: Will be gradually refactored to remove direct OTel
+3. **Inspector**: Enriches existing spans until migration complete
+4. **Future state**: Core mcp-agent will have zero OTel imports
+
+See [Development Guide](development.md#instrumentation-patterns) for the required patterns for new development.
+
 ## 7. Performance Guidelines
 
 The Inspector is designed to handle production workloads with minimal overhead.
@@ -357,28 +389,56 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md#6-performance-tests) for full performanc
 
 ## 8. Runtime Configuration
 
-### 8.1. Environment Variables
+The Inspector's configuration is managed through a hierarchical system, providing flexibility for different environments from local development to production deployment.
 
-- **INSPECTOR_PORT**: Override the default port (7800) when running with `mount(app=None)`. Used by Playwright/pytest to avoid collisions during parallel test runs.
-- **MCP_TRACES_DIR**: Override the default trace directory (~/.mcp_traces)
-- **INSPECTOR_DEBUG**: Enable verbose debug logging
-- **INSPECTOR_ENABLE_PATCH**: Enable legacy monkey-patching for older mcp-agent versions (set to 1)
+### 8.1. Configuration Sources and Precedence
 
-### 8.2. Mount Options
+The configuration is loaded in the following order of precedence, with later sources overriding earlier ones:
+
+1. **Default Values**: Defined in the `InspectorSettings` Pydantic model
+2. **Configuration File**: Values from the `inspector:` section in `mcp_agent.config.yaml`
+3. **Environment Variables**: Prefixed with `INSPECTOR_` (e.g., `INSPECTOR_PORT`)
+4. **Runtime Parameters**: Arguments passed directly to `inspector.mount()`
+
+### 8.2. Configuration Schema (`inspector:` section)
+
+A new top-level `inspector:` section in `mcp_agent.config.yaml` houses all settings:
+
+```yaml
+# mcp_agent.config.yaml
+inspector:
+  enabled: true
+  port: 7800
+  host: "127.0.0.1"
+  
+  storage:
+    traces_dir: "~/.mcp_traces"
+    max_trace_size: 104857600  # 100MB
+    retention_days: 7
+  
+  security:
+    auth_enabled: false
+    cors_origins: []
+  
+  performance:
+    sample_rate: 1.0
+  
+  debug:
+    debug: false
+```
+
+This structure is defined by the `InspectorSettings` Pydantic model, ensuring type validation and clear defaults. This approach decouples the Inspector from other configurations like `otel:`, aligning with the hook-based instrumentation architecture.
+
+### 8.3. Mount Options
 
 ```python
 def mount(
     app: Optional[FastAPI] = None,
-    *,
-    expose: bool = False,       # Allow 0.0.0.0 binding (future)
-    auth: Optional[Any] = None, # Authentication provider (6-production)
-    port: int = 7800           # Default port for standalone mode
+    settings: Optional[InspectorSettings] = None
 ) -> None:
 ```
 
-- **Port can be overridden via INSPECTOR_PORT env var (added in 1-bootstrap for test isolation)**
-- When `app=None`, spawns internal Uvicorn server on 127.0.0.1
-- Includes atexit hook for clean shutdown
+The mount function accepts an optional `InspectorSettings` object, applying the resolved configuration values. If not provided, settings are loaded from the app's config context or defaults.
 
 ## 9. Security Considerations
 
@@ -396,3 +456,4 @@ def mount(
 - [Telemetry Specification](telemetry-spec.md) - Span attributes and events
 - [Roadmap](roadmap.md) - Implementation milestones
 - [Security](security.md) - Authentication and CSRF protection
+- [Data Schemas](data-schemas.md) - Data models and API contracts

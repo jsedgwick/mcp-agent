@@ -8,6 +8,8 @@
 
 The understand milestone transforms raw debugging data into actionable insights. It adds polished UI components, live metrics, and the ability to unblock paused workflows directly from the Inspector.
 
+**Architectural Migration Note**: By this milestone, we begin the systematic removal of direct OpenTelemetry calls from core mcp-agent modules. The migration tasks (see roadmap) should be tackled alongside feature development. Continue using hook-based instrumentation for all new features.
+
 ## Success Criteria
 
 - JSON state displayed in collapsible tree format

@@ -180,196 +180,196 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                 span.set_attribute(GEN_AI_AGENT_NAME, self.agent.name)
                 self._annotate_span_for_generation_message(span, message)
 
-            config = self.context.config
-            messages: List[MessageParam] = []
-            params = self.get_request_params(request_params)
+                config = self.context.config
+                messages: List[MessageParam] = []
+                params = self.get_request_params(request_params)
 
-            if self.context.tracing_enabled:
-                AugmentedLLM.annotate_span_with_request_params(span, params)
+                if self.context.tracing_enabled:
+                    AugmentedLLM.annotate_span_with_request_params(span, params)
 
-            if params.use_history:
-                messages.extend(self.history.get())
-            messages.extend(
-                AnthropicConverter.convert_mixed_messages_to_anthropic(message)
-            )
-
-            list_tools_result = await self.agent.list_tools()
-            available_tools: List[ToolParam] = [
-                {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "input_schema": tool.inputSchema,
-                }
-                for tool in list_tools_result.tools
-            ]
-
-            responses: List[Message] = []
-            model = await self.select_model(params)
-
-            if model:
-                span.set_attribute(GEN_AI_REQUEST_MODEL, model)
-
-            total_input_tokens = 0
-            total_output_tokens = 0
-            finish_reasons = []
-
-            for i in range(params.max_iterations):
-                if (
-                    i == params.max_iterations - 1
-                    and responses
-                    and responses[-1].stop_reason == "tool_use"
-                ):
-                    final_prompt_message = MessageParam(
-                        role="user",
-                        content="""We've reached the maximum number of iterations. 
-                        Please stop using tools now and provide your final comprehensive answer based on all tool results so far. 
-                        At the beginning of your response, clearly indicate that your answer may be incomplete due to reaching the maximum number of tool usage iterations, 
-                        and explain what additional information you would have needed to provide a more complete answer.""",
-                    )
-                    messages.append(final_prompt_message)
-
-                arguments = {
-                    "model": model,
-                    "max_tokens": params.maxTokens,
-                    "messages": messages,
-                    "system": self.instruction or params.systemPrompt,
-                    "stop_sequences": params.stopSequences or [],
-                    "tools": available_tools,
-                }
-
-                if params.metadata:
-                    arguments = {**arguments, **params.metadata}
-
-                self.logger.debug(f"{arguments}")
-                self._log_chat_progress(chat_turn=(len(messages) + 1) // 2, model=model)
-
-                request = RequestCompletionRequest(
-                    config=config.anthropic,
-                    payload=arguments,
+                if params.use_history:
+                    messages.extend(self.history.get())
+                messages.extend(
+                    AnthropicConverter.convert_mixed_messages_to_anthropic(message)
                 )
 
-                self._annotate_span_for_completion_request(span, request, i)
+                list_tools_result = await self.agent.list_tools()
+                available_tools: List[ToolParam] = [
+                    {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "input_schema": tool.inputSchema,
+                    }
+                    for tool in list_tools_result.tools
+                ]
 
-                response: Message = await self.executor.execute(
-                    AnthropicCompletionTasks.request_completion_task,
-                    ensure_serializable(request),
-                )
+                responses: List[Message] = []
+                model = await self.select_model(params)
 
-                if isinstance(response, BaseException):
-                    self.logger.error(f"Error: {response}")
-                    span.record_exception(response)
-                    span.set_status(trace.Status(trace.StatusCode.ERROR))
-                    break
+                if model:
+                    span.set_attribute(GEN_AI_REQUEST_MODEL, model)
 
-                self.logger.debug(
-                    f"{model} response:",
-                    data=response,
-                )
+                total_input_tokens = 0
+                total_output_tokens = 0
+                finish_reasons = []
 
-                self._annotate_span_for_completion_response(span, response, i)
-
-                total_input_tokens += response.usage.input_tokens
-                total_output_tokens += response.usage.output_tokens
-
-                response_as_message = self.convert_message_to_message_param(response)
-                messages.append(response_as_message)
-                responses.append(response)
-                finish_reasons.append(response.stop_reason)
-
-                if response.stop_reason == "end_turn":
-                    self.logger.debug(
-                        f"Iteration {i}: Stopping because finish_reason is 'end_turn'"
-                    )
-                    span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, ["end_turn"])
-                    break
-                elif response.stop_reason == "stop_sequence":
-                    # We have reached a stop sequence
-                    self.logger.debug(
-                        f"Iteration {i}: Stopping because finish_reason is 'stop_sequence'"
-                    )
-                    span.set_attribute(
-                        GEN_AI_RESPONSE_FINISH_REASONS, ["stop_sequence"]
-                    )
-                    break
-                elif response.stop_reason == "max_tokens":
-                    # We have reached the max tokens limit
-                    self.logger.debug(
-                        f"Iteration {i}: Stopping because finish_reason is 'max_tokens'"
-                    )
-                    span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, ["max_tokens"])
-                    # TODO: saqadri - would be useful to return the reason for stopping to the caller
-                    break
-                else:  # response.stop_reason == "tool_use":
-                    for content in response.content:
-                        if content.type == "tool_use":
-                            tool_name = content.name
-                            tool_args = content.input
-                            tool_use_id = content.id
-
-                            # TODO -- productionize this
-                            # if tool_name == HUMAN_INPUT_TOOL_NAME:
-                            #     # Get the message from the content list
-                            #     message_text = ""
-                            #     for block in response_as_message["content"]:
-                            #         if (
-                            #             isinstance(block, dict)
-                            #             and block.get("type") == "text"
-                            #         ):
-                            #             message_text += block.get("text", "")
-                            #         elif hasattr(block, "type") and block.type == "text":
-                            #             message_text += block.text
-
-                            # panel = Panel(
-                            #     message_text,
-                            #     title="MESSAGE",
-                            #     style="green",
-                            #     border_style="bold white",
-                            #     padding=(1, 2),
-                            # )
-                            # console.console.print(panel)
-
-                            tool_call_request = CallToolRequest(
-                                method="tools/call",
-                                params=CallToolRequestParams(
-                                    name=tool_name, arguments=tool_args
-                                ),
-                            )
-
-                            result = await self.call_tool(
-                                request=tool_call_request, tool_call_id=tool_use_id
-                            )
-
-                            message = self.from_mcp_tool_result(result, tool_use_id)
-
-                            messages.append(message)
-
-            if params.use_history:
-                self.history.set(messages)
-
-            self._log_chat_finished(model=model)
-
-            if self.context.tracing_enabled:
-                span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, total_input_tokens)
-                span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, total_output_tokens)
-                span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, finish_reasons)
-
-                for i, response in enumerate(responses):
-                    response_data = (
-                        self.extract_response_message_attributes_for_tracing(
-                            response, prefix=f"response.{i}"
+                for i in range(params.max_iterations):
+                    if (
+                        i == params.max_iterations - 1
+                        and responses
+                        and responses[-1].stop_reason == "tool_use"
+                    ):
+                        final_prompt_message = MessageParam(
+                            role="user",
+                            content="""We've reached the maximum number of iterations. 
+                            Please stop using tools now and provide your final comprehensive answer based on all tool results so far. 
+                            At the beginning of your response, clearly indicate that your answer may be incomplete due to reaching the maximum number of tool usage iterations, 
+                            and explain what additional information you would have needed to provide a more complete answer.""",
                         )
-                    )
-                    span.set_attributes(response_data)
+                        messages.append(final_prompt_message)
 
-            # Emit after_llm_generate hook on success
-            await instrument._emit(
-                "after_llm_generate",
-                llm=self,
-                prompt=message,
-                response=responses
-            )
-            
-            return responses
+                    arguments = {
+                        "model": model,
+                        "max_tokens": params.maxTokens,
+                        "messages": messages,
+                        "system": self.instruction or params.systemPrompt,
+                        "stop_sequences": params.stopSequences or [],
+                        "tools": available_tools,
+                    }
+
+                    if params.metadata:
+                        arguments = {**arguments, **params.metadata}
+
+                    self.logger.debug(f"{arguments}")
+                    self._log_chat_progress(chat_turn=(len(messages) + 1) // 2, model=model)
+
+                    request = RequestCompletionRequest(
+                        config=config.anthropic,
+                        payload=arguments,
+                    )
+
+                    self._annotate_span_for_completion_request(span, request, i)
+
+                    response: Message = await self.executor.execute(
+                        AnthropicCompletionTasks.request_completion_task,
+                        ensure_serializable(request),
+                    )
+
+                    if isinstance(response, BaseException):
+                        self.logger.error(f"Error: {response}")
+                        span.record_exception(response)
+                        span.set_status(trace.Status(trace.StatusCode.ERROR))
+                        break
+
+                    self.logger.debug(
+                        f"{model} response:",
+                        data=response,
+                    )
+
+                    self._annotate_span_for_completion_response(span, response, i)
+
+                    total_input_tokens += response.usage.input_tokens
+                    total_output_tokens += response.usage.output_tokens
+
+                    response_as_message = self.convert_message_to_message_param(response)
+                    messages.append(response_as_message)
+                    responses.append(response)
+                    finish_reasons.append(response.stop_reason)
+
+                    if response.stop_reason == "end_turn":
+                        self.logger.debug(
+                            f"Iteration {i}: Stopping because finish_reason is 'end_turn'"
+                        )
+                        span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, ["end_turn"])
+                        break
+                    elif response.stop_reason == "stop_sequence":
+                        # We have reached a stop sequence
+                        self.logger.debug(
+                            f"Iteration {i}: Stopping because finish_reason is 'stop_sequence'"
+                        )
+                        span.set_attribute(
+                            GEN_AI_RESPONSE_FINISH_REASONS, ["stop_sequence"]
+                        )
+                        break
+                    elif response.stop_reason == "max_tokens":
+                        # We have reached the max tokens limit
+                        self.logger.debug(
+                            f"Iteration {i}: Stopping because finish_reason is 'max_tokens'"
+                        )
+                        span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, ["max_tokens"])
+                        # TODO: saqadri - would be useful to return the reason for stopping to the caller
+                        break
+                    else:  # response.stop_reason == "tool_use":
+                        for content in response.content:
+                            if content.type == "tool_use":
+                                tool_name = content.name
+                                tool_args = content.input
+                                tool_use_id = content.id
+
+                                # TODO -- productionize this
+                                # if tool_name == HUMAN_INPUT_TOOL_NAME:
+                                #     # Get the message from the content list
+                                #     message_text = ""
+                                #     for block in response_as_message["content"]:
+                                #         if (
+                                #             isinstance(block, dict)
+                                #             and block.get("type") == "text"
+                                #         ):
+                                #             message_text += block.get("text", "")
+                                #         elif hasattr(block, "type") and block.type == "text":
+                                #             message_text += block.text
+
+                                # panel = Panel(
+                                #     message_text,
+                                #     title="MESSAGE",
+                                #     style="green",
+                                #     border_style="bold white",
+                                #     padding=(1, 2),
+                                # )
+                                # console.console.print(panel)
+
+                                tool_call_request = CallToolRequest(
+                                    method="tools/call",
+                                    params=CallToolRequestParams(
+                                        name=tool_name, arguments=tool_args
+                                    ),
+                                )
+
+                                result = await self.call_tool(
+                                    request=tool_call_request, tool_call_id=tool_use_id
+                                )
+
+                                message = self.from_mcp_tool_result(result, tool_use_id)
+
+                                messages.append(message)
+
+                if params.use_history:
+                    self.history.set(messages)
+
+                self._log_chat_finished(model=model)
+
+                if self.context.tracing_enabled:
+                    span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, total_input_tokens)
+                    span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, total_output_tokens)
+                    span.set_attribute(GEN_AI_RESPONSE_FINISH_REASONS, finish_reasons)
+
+                    for i, response in enumerate(responses):
+                        response_data = (
+                            self.extract_response_message_attributes_for_tracing(
+                                response, prefix=f"response.{i}"
+                            )
+                        )
+                        span.set_attributes(response_data)
+
+                # Emit after_llm_generate hook on success
+                await instrument._emit(
+                    "after_llm_generate",
+                    llm=self,
+                    prompt=message,
+                    response=responses
+                )
+                
+                return responses
         except Exception as e:
             # Emit error_llm_generate hook on exception
             await instrument._emit(

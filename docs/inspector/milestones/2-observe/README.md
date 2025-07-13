@@ -8,6 +8,8 @@
 
 The observe milestone delivers immediate debugging value by making mcp-agent workflows visible. Developers can see sessions, browse traces, inspect state, and understand why workflows pause.
 
+**Architectural Migration Note**: This milestone must implement all new features using the hook-based instrumentation pattern. Any new telemetry collection should use `instrument._emit()` and Inspector subscribers, NOT direct OpenTelemetry calls. The goal is to enrich existing spans created by legacy code while building new features the right way.
+
 ## Success Criteria
 
 - All workflow types (asyncio/Temporal) appear in unified session list
@@ -268,6 +270,83 @@ class InboundRPCInstrumentationMiddleware:
 
 ---
 
+### observe/feat/trace-streaming-endpoint
+**Priority**: High  
+**Description**: HTTP endpoint for streaming trace files  
+**Dependencies**: trace-file-exporter
+
+**Acceptance Criteria**:
+- GET `/_inspector/trace/{session_id}` endpoint implemented
+- Streams gzipped content from trace files
+- Supports HTTP Range headers for progressive loading
+- Returns 404 for non-existent sessions
+- Content-Encoding: gzip header set correctly
+
+**Implementation Notes**:
+```python
+@_router.get("/trace/{session_id}")
+async def stream_trace(session_id: str):
+    trace_path = get_trace_path(session_id)
+    if not trace_path.exists():
+        raise HTTPException(404)
+    
+    async def generate():
+        async with aiofiles.open(trace_path, 'rb') as f:
+            while chunk := await f.read(1024 * 1024):  # 1MB chunks
+                yield chunk
+    
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-jsonlines+gzip",
+        headers={"Content-Encoding": "gzip"}
+    )
+```
+- Update docs/inspector/openapi.yaml if this task changes the HTTP contract
+
+---
+
+### observe/feat/workflow-event-emission  
+**Priority**: High  
+**Description**: Wire workflow lifecycle events to SSE stream  
+**Dependencies**: async-event-bus-init, events-sse-stream
+
+**Acceptance Criteria**:
+- SessionStarted event emitted when workflow begins
+- SessionFinished event emitted when workflow completes/fails
+- Heartbeat events emitted periodically during execution
+- Events properly published to AsyncEventBus
+- Events appear in SSE stream
+
+**Implementation Notes**:
+```python
+# In workflow executor or base class
+async def run_workflow(workflow, context):
+    # Emit session started
+    await event_bus.publish(SessionStarted(
+        session_id=context.session_id,
+        engine="asyncio",
+        title=f"{workflow.__class__.__name__}"
+    ))
+    
+    try:
+        result = await workflow.run(context)
+        await event_bus.publish(SessionFinished(
+            session_id=context.session_id,
+            status="completed"
+        ))
+    except Exception as e:
+        await event_bus.publish(SessionFinished(
+            session_id=context.session_id,
+            status="failed",
+            error=str(e)
+        ))
+```
+- Hook into executor lifecycle points
+- Consider adding to base Workflow class
+- Ensure Temporal workflows also emit events
+
+---
+
 ### observe/test/e2e-playwright-suite
 **Priority**: Medium  
 **Description**: End-to-end test coverage
@@ -296,8 +375,10 @@ graph TD
     PERF[performance-baseline] --> D[telemetry-full-enrichment]
     DOCS[hook-integration] --> D
     A[sessions-unified-list] --> G[ui-session-navigator]
-    B[trace-file-exporter] --> G
-    C --> G
+    B[trace-file-exporter] --> TSE[trace-streaming-endpoint]
+    TSE --> G
+    C --> WEE[workflow-event-emission]
+    WEE --> G
     D --> B
     E[sessions-inbound-mcp] --> A
     IRPC[inbound-rpc-instrumentation] --> E

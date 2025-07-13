@@ -336,7 +336,7 @@ class AsyncEventBus:
         self._stop_event.set()
 
         # Try to process remaining items with a timeout
-        if not self._queue.empty():
+        if hasattr(self, '_queue') and not self._queue.empty():
             try:
                 # Give some time for remaining items to be processed
                 await asyncio.wait_for(self._queue.join(), timeout=5.0)
@@ -404,6 +404,10 @@ class AsyncEventBus:
 
     async def _process_events(self):
         """Process events from the queue until stopped."""
+        # Ensure queue exists before processing
+        if not hasattr(self, '_queue'):
+            return
+            
         while self._running:
             event = None
             try:
@@ -448,20 +452,21 @@ class AsyncEventBus:
                     self._queue.task_done()
 
         # Process remaining events in queue
-        while not self._queue.empty():
-            try:
-                event = self._queue.get_nowait()
-                tasks = []
-                for listener in self.listeners.values():
-                    try:
-                        tasks.append(listener.handle_event(event))
-                    except Exception:
-                        pass
-                if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
-                self._queue.task_done()
-            except asyncio.QueueEmpty:
-                break
+        if hasattr(self, '_queue'):
+            while not self._queue.empty():
+                try:
+                    event = self._queue.get_nowait()
+                    tasks = []
+                    for listener in self.listeners.values():
+                        try:
+                            tasks.append(listener.handle_event(event))
+                        except Exception:
+                            pass
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                    self._queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
 
 
 class MultiTransport(EventTransport):
