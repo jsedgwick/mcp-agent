@@ -172,16 +172,25 @@ async def get_trace_stream(
     else:
         traces_dir = Path("~/.mcp_traces").expanduser()
     
-    # Construct file path
-    file_name = f"{safe_session_id}.jsonl.gz"
-    trace_path = traces_dir / file_name
+    # Construct file path - try both compressed and uncompressed
+    gz_file_name = f"{safe_session_id}.jsonl.gz"
+    gz_trace_path = traces_dir / gz_file_name
+    
+    plain_file_name = f"{safe_session_id}.jsonl"
+    plain_trace_path = traces_dir / plain_file_name
+    
+    # Check which file exists (prefer compressed)
+    if gz_trace_path.exists():
+        trace_path = gz_trace_path
+        is_gzipped = True
+    elif plain_trace_path.exists():
+        trace_path = plain_trace_path
+        is_gzipped = False
+    else:
+        raise HTTPException(status_code=404, detail="Trace not found")
     
     # Validate the path is within allowed directory
     trace_path = validate_trace_path(trace_path, traces_dir)
-    
-    # Check if file exists
-    if not trace_path.exists():
-        raise HTTPException(status_code=404, detail="Trace not found")
     
     # Generate ETag
     etag = generate_etag(trace_path)
@@ -194,7 +203,7 @@ async def get_trace_stream(
     range_header = request.headers.get("range")
     
     if range_header:
-        # Handle Range request - decompress and serve partial content
+        # Handle Range request - serve partial content
         try:
             # Parse Range header (e.g., "bytes=0-499")
             range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
@@ -205,28 +214,37 @@ async def get_trace_stream(
             end_str = range_match.group(2)
             end = int(end_str) if end_str else None
             
-            # Stream the decompressed content for the requested range
+            # Stream the content for the requested range
             headers = {
                 "Accept-Ranges": "bytes",
                 "Content-Range": f"bytes {start}-{end or ''}/*",
                 "ETag": etag,
             }
             
-            return StreamingResponse(
-                stream_gzipped_file_decompressed(trace_path, start, end),
-                status_code=206,  # Partial Content
-                media_type="application/x-ndjson",
-                headers=headers
-            )
+            if is_gzipped:
+                # For gzipped files, decompress and serve partial content
+                return StreamingResponse(
+                    stream_gzipped_file_decompressed(trace_path, start, end),
+                    status_code=206,  # Partial Content
+                    media_type="application/x-ndjson",
+                    headers=headers
+                )
+            else:
+                # For plain files, serve partial content directly
+                return StreamingResponse(
+                    stream_plain_file_partial(trace_path, start, end),
+                    status_code=206,  # Partial Content
+                    media_type="application/x-ndjson",
+                    headers=headers
+                )
             
         except (ValueError, AttributeError) as e:
             raise HTTPException(status_code=400, detail="Invalid Range header")
     
     else:
-        # No Range header - serve the entire file compressed
-        # Use streaming to serve the gzipped file directly
-        async def stream_gzipped_file():
-            """Stream the gzipped file as-is."""
+        # No Range header - serve the entire file
+        async def stream_file():
+            """Stream the file."""
             chunk_size = 1024 * 1024  # 1MB chunks
             with open(trace_path, 'rb') as f:
                 while True:
@@ -238,13 +256,78 @@ async def get_trace_stream(
         # Get file size for Content-Length
         file_size = trace_path.stat().st_size
         
+        headers = {
+            "ETag": etag,
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size),
+        }
+        
+        # Add Content-Encoding header only for gzipped files
+        if is_gzipped:
+            headers["Content-Encoding"] = "gzip"
+        
         return StreamingResponse(
-            stream_gzipped_file(),
+            stream_file(),
             media_type="application/x-ndjson", 
-            headers={
-                "Content-Encoding": "gzip",
-                "ETag": etag,
-                "Accept-Ranges": "bytes",
-                "Content-Length": str(file_size),
-            }
+            headers=headers
         )
+
+
+async def stream_plain_file_partial(
+    file_path: Path, 
+    start: int = 0, 
+    end: Optional[int] = None
+) -> AsyncIterator[bytes]:
+    """Stream a plain file for the given byte range.
+    
+    Args:
+        file_path: Path to the plain file
+        start: Start byte position
+        end: End byte position (exclusive), None for EOF
+        
+    Yields:
+        Chunks of data within the requested range
+    """
+    chunk_size = 1024 * 1024  # 1MB chunks
+    
+    def read_file():
+        """Read file synchronously."""
+        chunks = []
+        
+        with open(file_path, 'rb') as f:
+            # Seek to start position
+            f.seek(start)
+            
+            # Calculate bytes to read
+            if end is not None:
+                bytes_to_read = end - start
+            else:
+                bytes_to_read = None
+            
+            bytes_read = 0
+            while True:
+                # Determine chunk size
+                if bytes_to_read is not None:
+                    current_chunk_size = min(chunk_size, bytes_to_read - bytes_read)
+                    if current_chunk_size <= 0:
+                        break
+                else:
+                    current_chunk_size = chunk_size
+                
+                # Read chunk
+                chunk = f.read(current_chunk_size)
+                if not chunk:
+                    break
+                
+                chunks.append(chunk)
+                bytes_read += len(chunk)
+        
+        return chunks
+    
+    # Run the blocking I/O in a thread
+    loop = asyncio.get_event_loop()
+    chunks = await loop.run_in_executor(None, read_file)
+    
+    # Yield chunks one by one
+    for chunk in chunks:
+        yield chunk

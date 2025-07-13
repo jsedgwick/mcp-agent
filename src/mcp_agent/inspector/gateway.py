@@ -218,3 +218,24 @@ def mount(
     # Register hook subscribers for span enrichment
     from .subscribers import register_all_subscribers
     register_all_subscribers()
+    
+    # Auto-start AsyncEventBus if not already running
+    import asyncio
+    try:
+        from mcp_agent.logging.transport import AsyncEventBus
+        
+        event_bus = AsyncEventBus.get()
+        if not event_bus._running:
+            # Check if there's already a running event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # Create task to start the event bus
+                asyncio.create_task(event_bus.start())
+            except RuntimeError:
+                # No running loop, we'll need to handle this differently
+                # This typically means we're in a sync context
+                # The event bus will auto-initialize its queue on first emit
+                pass
+    except ImportError:
+        # AsyncEventBus not available, which is fine for basic Inspector usage
+        pass

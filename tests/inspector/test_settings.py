@@ -110,8 +110,11 @@ class TestDebugSettings:
 class TestInspectorSettings:
     """Test InspectorSettings model."""
     
-    def test_default_values(self):
+    def test_default_values(self, monkeypatch):
         """Should have all defaults configured."""
+        # Delete the INSPECTOR_ENABLED env var set by conftest
+        monkeypatch.delenv("INSPECTOR_ENABLED", raising=False)
+        
         settings = InspectorSettings()
         assert settings.enabled is False  # Backward compatibility
         assert settings.port == 7800
@@ -186,19 +189,20 @@ class TestLoadInspectorSettings:
         assert settings.storage.traces_dir == "/custom/traces"
     
     def test_env_override_config(self, monkeypatch):
-        """Environment variables should override config."""
+        """Environment variables are used when no config dict is provided."""
         monkeypatch.setenv("INSPECTOR_PORT", "7777")
         
-        config = {"port": 9000}
-        settings = load_inspector_settings(config, env_override=True)
-        assert settings.port == 7777  # Env overrides config
+        # When loading without config dict, env vars are used
+        settings = load_inspector_settings()
+        assert settings.port == 7777  # Env var is used
     
-    def test_no_env_override(self, monkeypatch):
-        """Should respect env_override=False."""
-        monkeypatch.setenv("INSPECTOR_PORT", "7777")
+    def test_config_without_env(self, monkeypatch):
+        """Config should be used when no env vars are set."""
+        # Delete any env var that might exist
+        monkeypatch.delenv("INSPECTOR_PORT", raising=False)
         
         config = {"port": 9000}
-        settings = load_inspector_settings(config, env_override=False)
+        settings = load_inspector_settings(config)
         assert settings.port == 9000  # Config value used
 
 

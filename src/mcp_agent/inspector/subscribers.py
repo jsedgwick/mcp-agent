@@ -5,7 +5,9 @@ This module contains all the hook subscriber functions that enrich
 OpenTelemetry spans with mcp-agent specific attributes.
 """
 
+import asyncio
 import json
+from datetime import datetime
 from typing import Any, Optional
 
 from opentelemetry import trace
@@ -274,6 +276,195 @@ async def error_rpc_request(envelope, transport, exc, **_kw) -> None:
             span.set_attribute(SpanMeta.ERROR_CODE, type(exc).__name__)
 
 
+# Session lifecycle hooks
+
+async def session_started(session_id: str, metadata: Optional[dict] = None, **_kw) -> None:
+    """Handle session start event."""
+    # Set inspector context
+    context.set(session_id)
+    
+    # Publish SSE event
+    try:
+        from .events import SessionStarted, get_event_stream
+        
+        # Extract engine and title from metadata
+        engine = "asyncio"  # default
+        title = None
+        
+        if metadata:
+            engine = metadata.get("engine", "asyncio")
+            app_name = metadata.get("app_name")
+            if app_name:
+                title = f"{app_name} Session"
+        
+        event = SessionStarted(session_id, engine, title)
+        stream = await get_event_stream()
+        await stream.publish_event(event.to_dict())
+    except Exception:
+        # Don't break the app if event publishing fails
+        pass
+
+
+async def session_finished(session_id: str, status: str = "completed", error: Optional[str] = None, **_kw) -> None:
+    """Handle session finish event."""
+    # Publish SSE event
+    try:
+        from .events import SessionFinished, get_event_stream
+        
+        event = SessionFinished(session_id, status, error)
+        stream = await get_event_stream()
+        await stream.publish_event(event.to_dict())
+    except Exception:
+        # Don't break the app if event publishing fails
+        pass
+
+
+# Session event subscribers (workflow lifecycle -> session events)
+
+async def _publish_event(event) -> None:
+    """Publish event to the event stream asynchronously."""
+    async def _publish():
+        try:
+            from .events import get_event_stream
+            stream = await get_event_stream()
+            await stream.publish_event(event.to_dict())
+        except Exception:
+            # Don't break workflow execution
+            pass
+    
+    # Create task to publish event without blocking
+    asyncio.create_task(_publish())
+
+
+async def _heartbeat_loop(session_id: str, context: Any) -> None:
+    """Run heartbeat loop for a session."""
+    from .events import Heartbeat
+    from .sessions import session_registry
+    
+    interval = 2.0  # TODO: Get from settings
+    
+    try:
+        while True:
+            # Wait for interval
+            await asyncio.sleep(interval)
+            
+            # Check if session is still active
+            if session_id not in session_registry.active_ids():
+                break
+            
+            # Get metrics deltas (simplified for now)
+            deltas = session_registry.update_metrics(
+                session_id,
+                llm_calls=0,  # TODO: Get from actual metrics
+                tokens=0,     # TODO: Get from actual metrics
+                spans=0       # TODO: Get from actual metrics
+            )
+            
+            # Publish heartbeat
+            event = Heartbeat(
+                session_id=session_id,
+                llm_calls_delta=deltas["llm_calls_delta"],
+                tokens_delta=deltas["tokens_delta"]
+            )
+            await _publish_event(event)
+            
+    except asyncio.CancelledError:
+        # Task was cancelled, exit gracefully
+        pass
+    except Exception:
+        # Log but don't crash
+        pass
+
+
+async def session_before_workflow_run(workflow, context, **_kw) -> None:
+    """Emit SessionStarted event when workflow begins."""
+    try:
+        from .events import SessionStarted
+        from .sessions import SessionMeta, session_registry
+        
+        # Extract session ID from context
+        session_id = getattr(context, 'session_id', None)
+        if not session_id:
+            return
+        
+        # Determine engine type
+        engine = "asyncio"  # default
+        if hasattr(context, 'executor') and hasattr(context.executor, 'execution_engine'):
+            engine = context.executor.execution_engine
+        
+        # Create session metadata
+        title = getattr(workflow, 'title', workflow.__class__.__name__)
+        meta = SessionMeta(
+            id=session_id,
+            status="running",
+            started_at=datetime.utcnow().isoformat(),
+            engine=engine,
+            title=title
+        )
+        
+        # Add to registry
+        await session_registry.add(meta)
+        
+        # Publish event
+        event = SessionStarted(session_id, engine, title)
+        await _publish_event(event)
+        
+        # Start heartbeat loop
+        heartbeat_task = asyncio.create_task(_heartbeat_loop(session_id, context))
+        session_registry.set_heartbeat_task(session_id, heartbeat_task)
+        
+    except Exception:
+        # Don't break workflow execution
+        pass
+
+
+async def session_after_workflow_run(workflow, context, result, **_kw) -> None:
+    """Emit SessionFinished event when workflow completes successfully."""
+    try:
+        from .events import SessionFinished
+        from .sessions import session_registry
+        
+        # Extract session ID from context
+        session_id = getattr(context, 'session_id', None)
+        if not session_id:
+            return
+        
+        # Mark session as completed
+        await session_registry.finish(session_id, "completed")
+        
+        # Publish event
+        event = SessionFinished(session_id, "completed")
+        await _publish_event(event)
+        
+    except Exception:
+        # Don't break workflow execution
+        pass
+
+
+async def session_error_workflow_run(workflow, context, exc, **_kw) -> None:
+    """Emit SessionFinished event when workflow fails."""
+    try:
+        from .events import SessionFinished
+        from .sessions import session_registry
+        
+        # Extract session ID from context
+        session_id = getattr(context, 'session_id', None)
+        if not session_id:
+            return
+        
+        # Mark session as failed
+        error_msg = str(exc)
+        await session_registry.finish(session_id, "failed", error_msg)
+        
+        # Publish event
+        event = SessionFinished(session_id, "failed", error_msg)
+        await _publish_event(event)
+        
+    except Exception:
+        # Don't break workflow execution
+        pass
+
+
 def register_all_subscribers() -> None:
     """
     Register all inspector hook subscribers with the instrumentation system.
@@ -288,10 +479,15 @@ def register_all_subscribers() -> None:
     # Agent hooks
     instrument.register("before_agent_call", before_agent_call)
     
-    # Workflow hooks
+    # Workflow hooks - both span enrichment and session events
     instrument.register("before_workflow_run", before_workflow_run)
     instrument.register("after_workflow_run", after_workflow_run)
     instrument.register("error_workflow_run", error_workflow_run)
+    
+    # Session event subscribers (convert workflow hooks to SSE events)
+    instrument.register("before_workflow_run", session_before_workflow_run)
+    instrument.register("after_workflow_run", session_after_workflow_run)
+    instrument.register("error_workflow_run", session_error_workflow_run)
     
     # Tool hooks
     instrument.register("before_tool_call", before_tool_call)
@@ -306,6 +502,10 @@ def register_all_subscribers() -> None:
     instrument.register("before_rpc_request", before_rpc_request)
     instrument.register("after_rpc_response", after_rpc_response)
     instrument.register("error_rpc_request", error_rpc_request)
+    
+    # Session lifecycle hooks
+    instrument.register("session_started", session_started)
+    instrument.register("session_finished", session_finished)
 
 
 def unregister_all_subscribers() -> None:
@@ -321,10 +521,15 @@ def unregister_all_subscribers() -> None:
     # Agent hooks
     instrument.unregister("before_agent_call", before_agent_call)
     
-    # Workflow hooks
+    # Workflow hooks - both span enrichment and session events
     instrument.unregister("before_workflow_run", before_workflow_run)
     instrument.unregister("after_workflow_run", after_workflow_run)
     instrument.unregister("error_workflow_run", error_workflow_run)
+    
+    # Session event subscribers
+    instrument.unregister("before_workflow_run", session_before_workflow_run)
+    instrument.unregister("after_workflow_run", session_after_workflow_run)
+    instrument.unregister("error_workflow_run", session_error_workflow_run)
     
     # Tool hooks
     instrument.unregister("before_tool_call", before_tool_call)
@@ -339,3 +544,7 @@ def unregister_all_subscribers() -> None:
     instrument.unregister("before_rpc_request", before_rpc_request)
     instrument.unregister("after_rpc_response", after_rpc_response)
     instrument.unregister("error_rpc_request", error_rpc_request)
+    
+    # Session lifecycle hooks
+    instrument.unregister("session_started", session_started)
+    instrument.unregister("session_finished", session_finished)

@@ -64,7 +64,6 @@ class MCPApp:
         signal_notification: Optional[SignalWaitCallback] = None,
         upstream_session: Optional["ServerSession"] = None,
         model_selector: ModelSelector = None,
-        # --> ADD THIS NEW PARAMETER
         session_id: Optional[str] = None,
     ):
         """
@@ -83,9 +82,8 @@ class MCPApp:
         self.name = name
         self.description = description or "MCP Agent Application"
         
-        # --> ADD THIS BLOCK TO GENERATE THE SESSION ID AT CONSTRUCTION TIME
-        # This is the key change to resolve the race condition.
-        self._session_id = session_id or str(uuid.uuid4())
+        # Store the provided session_id (if any) for later use
+        self._provided_session_id = session_id
 
         # We use these to initialize the context in initialize()
         if settings is None:
@@ -183,6 +181,10 @@ class MCPApp:
         if self._initialized:
             return
 
+        # Generate session ID at initialization time if not provided
+        if not hasattr(self, '_session_id'):
+            self._session_id = self._provided_session_id or str(uuid.uuid4())
+        
         # Pass the session ID to initialize_context
         self._context = await initialize_context(
             config=self.config,
@@ -190,7 +192,6 @@ class MCPApp:
             decorator_registry=self._decorator_registry,
             signal_registry=self._signal_registry,
             store_globally=True,
-            # --> PASS THE SESSION_ID HERE
             session_id=self._session_id,
         )
 
@@ -266,12 +267,36 @@ class MCPApp:
                 pass
         """
         await self.initialize()
+        
+        # Emit session_started hook after initialization
+        from mcp_agent.core import instrument
+        if instrument._hooks.get("session_started"):
+            await instrument._emit(
+                "session_started", 
+                session_id=self.session_id,
+                metadata={"app_name": self.name, "engine": self.config.execution_engine}
+            )
+        
+        # Set inspector context if available
+        try:
+            from mcp_agent.inspector import context as insp_ctx
+            insp_ctx.set(self.session_id)
+        except ImportError:
+            pass
 
         tracer = get_tracer(self.context)
         with tracer.start_as_current_span(self.name):
             try:
                 yield self
             finally:
+                # Emit session_finished hook before cleanup
+                if instrument._hooks.get("session_finished"):
+                    await instrument._emit(
+                        "session_finished",
+                        session_id=self.session_id,
+                        status="completed",
+                        error=None
+                    )
                 await self.cleanup()
 
     def workflow(
